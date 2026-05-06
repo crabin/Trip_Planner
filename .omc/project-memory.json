@@ -1,0 +1,233 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1778051168136,
+  "projectRoot": "/Users/lpb/workspace/myProjects/Trip_Planner",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "assets"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "assets": {
+      "path": "assets",
+      "purpose": "Static assets",
+      "fileCount": 0,
+      "lastAccessed": 1778051168112,
+      "keyFiles": []
+    },
+    "backend": {
+      "path": "backend",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1778051168112,
+      "keyFiles": [
+        "README.md",
+        "main.py",
+        "pyproject.toml",
+        "requirements.txt",
+        "uv.lock"
+      ]
+    },
+    "frontend": {
+      "path": "frontend",
+      "purpose": null,
+      "fileCount": 10,
+      "lastAccessed": 1778051168112,
+      "keyFiles": [
+        "README.md",
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "tsconfig.json"
+      ]
+    },
+    "backend/app": {
+      "path": "backend/app",
+      "purpose": "Application code",
+      "fileCount": 3,
+      "lastAccessed": 1778051168113,
+      "keyFiles": [
+        "__init__.py",
+        "config.py"
+      ]
+    },
+    "frontend/node_modules": {
+      "path": "frontend/node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 2,
+      "lastAccessed": 1778051168115,
+      "keyFiles": []
+    },
+    "frontend/src": {
+      "path": "frontend/src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1778051168115,
+      "keyFiles": [
+        "App.vue",
+        "main.ts"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "frontend/package.json",
+      "accessCount": 2,
+      "lastAccessed": 1778051395476,
+      "type": "file"
+    },
+    {
+      "path": "backend/pyproject.toml",
+      "accessCount": 2,
+      "lastAccessed": 1778051395707,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/api/main.py",
+      "accessCount": 2,
+      "lastAccessed": 1778051428796,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/App.vue",
+      "accessCount": 2,
+      "lastAccessed": 1778051429276,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/rag/retriever.py",
+      "accessCount": 2,
+      "lastAccessed": 1778051429431,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/services/trip_service.py",
+      "accessCount": 2,
+      "lastAccessed": 1778051429512,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/services/api.ts",
+      "accessCount": 2,
+      "lastAccessed": 1778051429568,
+      "type": "file"
+    },
+    {
+      "path": "backend/main.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051297288,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/api/routes/trip.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051298241,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051300154,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/services/storage_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051313415,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/config.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051316490,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/models/schemas.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051316731,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/api/routes/export.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051316905,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/rag/vector_db.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051323937,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/tools/rag_tool.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051324928,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/services/map_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1778051326868,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/views/Home.vue",
+      "accessCount": 1,
+      "lastAccessed": 1778051327871,
+      "type": "file"
+    },
+    {
+      "path": "AGENTS.md",
+      "accessCount": 1,
+      "lastAccessed": 1778051327924,
+      "type": "file"
+    },
+    {
+      "path": "frontend/README.md",
+      "accessCount": 1,
+      "lastAccessed": 1778051395742,
+      "type": "file"
+    },
+    {
+      "path": "backend/README.md",
+      "accessCount": 1,
+      "lastAccessed": 1778051395808,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1778051395949,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

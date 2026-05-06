@@ -1,0 +1,44 @@
+{
+  "agents": [
+    {
+      "agent_id": "a3f6af4068a5e3ac5",
+      "agent_type": "everything-claude-code:python-reviewer",
+      "started_at": "2026-05-04T07:59:07.198Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-05-04T08:00:01.931Z",
+      "duration_ms": 54733
+    },
+    {
+      "agent_id": "abd64fa7aeefc1194",
+      "agent_type": "everything-claude-code:code-reviewer",
+      "started_at": "2026-05-04T07:59:07.253Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-05-04T07:59:59.403Z",
+      "duration_ms": 52150
+    },
+    {
+      "agent_id": "ae82ef07d05192ae7",
+      "agent_type": "everything-claude-code:python-reviewer",
+      "started_at": "2026-05-04T08:03:18.018Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-05-04T08:04:15.159Z",
+      "duration_ms": 57141
+    },
+    {
+      "agent_id": "afc082c5e2758494f",
+      "agent_type": "Explore",
+      "started_at": "2026-05-04T08:37:14.730Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-05-04T08:38:23.179Z",
+      "duration_ms": 68449
+    }
+  ],
+  "total_spawned": 3,
+  "total_completed": 4,
+  "total_failed": 0,
+  "last_updated": "2026-05-04T08:38:23.281Z"
+}

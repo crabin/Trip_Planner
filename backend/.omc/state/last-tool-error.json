@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"rtk pytest /Users/lpb/workspace/github/rag/zhilv-yuntu/backend/tests/test_services_trip.py -k enriches_spot_coordinates_when_amap_key_exists\",\"timeout\":120000,\"description\":\"Run the new re...",
+  "error": "Exit code 1\nPytest: 0 passed, 1 failed\n═══════════════════════════════════════\n\nFailures:\n     tests/test_services_trip.py:221: in test_generate_trip_itinerary_enriches_spot_coordinates_when_a...\n     assert itinerary.days[0].spots[0].latitude == 25.6065\n     E   AssertionError: assert None == 25.6065\n\n2. [FAIL] tests/test_services_trip.py::test_generate_trip_itinerary_enriches_spot_coordinates_when_amap_key_exists\n[full output: ~/Library/Application Support/rtk/tee/1777884116_pytest.log]",
+  "timestamp": "2026-05-04T08:41:56.799Z",
+  "retry_count": 1
+}

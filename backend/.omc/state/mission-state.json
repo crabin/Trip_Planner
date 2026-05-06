@@ -1,0 +1,145 @@
+{
+  "updatedAt": "2026-05-04T08:38:23.179Z",
+  "missions": [
+    {
+      "id": "session:db6f15ce-daf1-41cf-9a67-ec2e2a729395:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-05-04T07:59:07.198Z",
+      "updatedAt": "2026-05-04T08:07:47.018Z",
+      "status": "done",
+      "workerCount": 3,
+      "taskCounts": {
+        "total": 3,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 0,
+        "completed": 3,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "everything-claude-code:python-reviewer:a3f6af4",
+          "role": "everything-claude-code:python-reviewer",
+          "ownership": "a3f6af4068a5e3ac5",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-05-04T08:07:47.018Z"
+        },
+        {
+          "name": "everything-claude-code:code-reviewer:abd64fa",
+          "role": "everything-claude-code:code-reviewer",
+          "ownership": "abd64fa7aeefc1194",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-05-04T07:59:59.403Z"
+        },
+        {
+          "name": "everything-claude-code:python-reviewer:ae82ef0",
+          "role": "everything-claude-code:python-reviewer",
+          "ownership": "ae82ef07d05192ae7",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-05-04T08:04:15.159Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-stop:abd64fa7aeefc1194:2026-05-04T07:59:59.403Z",
+          "at": "2026-05-04T07:59:59.403Z",
+          "kind": "completion",
+          "agent": "everything-claude-code:code-reviewer:abd64fa",
+          "detail": "completed",
+          "sourceKey": "session-stop:abd64fa7aeefc1194"
+        },
+        {
+          "id": "session-stop:a3f6af4068a5e3ac5:2026-05-04T08:00:01.931Z",
+          "at": "2026-05-04T08:00:01.931Z",
+          "kind": "completion",
+          "agent": "everything-claude-code:python-reviewer:a3f6af4",
+          "detail": "completed",
+          "sourceKey": "session-stop:a3f6af4068a5e3ac5"
+        },
+        {
+          "id": "session-start:ae82ef07d05192ae7:2026-05-04T08:03:18.018Z",
+          "at": "2026-05-04T08:03:18.018Z",
+          "kind": "update",
+          "agent": "everything-claude-code:python-reviewer:ae82ef0",
+          "detail": "started everything-claude-code:python-reviewer:ae82ef0",
+          "sourceKey": "session-start:ae82ef07d05192ae7"
+        },
+        {
+          "id": "session-stop:ae82ef07d05192ae7:2026-05-04T08:04:15.159Z",
+          "at": "2026-05-04T08:04:15.159Z",
+          "kind": "completion",
+          "agent": "everything-claude-code:python-reviewer:ae82ef0",
+          "detail": "completed",
+          "sourceKey": "session-stop:ae82ef07d05192ae7"
+        },
+        {
+          "id": "session-stop:a52cc81d6514406fe:2026-05-04T08:07:47.018Z",
+          "at": "2026-05-04T08:07:47.018Z",
+          "kind": "completion",
+          "agent": "everything-claude-code:python-reviewer:a3f6af4",
+          "detail": "completed",
+          "sourceKey": "session-stop:a52cc81d6514406fe"
+        }
+      ]
+    },
+    {
+      "id": "session:4dca36db-5343-4a7e-bdf9-a1981c8d5a80:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-05-04T08:37:14.730Z",
+      "updatedAt": "2026-05-04T08:38:23.179Z",
+      "status": "done",
+      "workerCount": 1,
+      "taskCounts": {
+        "total": 1,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 0,
+        "completed": 1,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "Explore:afc082c",
+          "role": "Explore",
+          "ownership": "afc082c5e2758494f",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-05-04T08:38:23.179Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-start:afc082c5e2758494f:2026-05-04T08:37:14.730Z",
+          "at": "2026-05-04T08:37:14.730Z",
+          "kind": "update",
+          "agent": "Explore:afc082c",
+          "detail": "started Explore:afc082c",
+          "sourceKey": "session-start:afc082c5e2758494f"
+        },
+        {
+          "id": "session-stop:afc082c5e2758494f:2026-05-04T08:38:23.179Z",
+          "at": "2026-05-04T08:38:23.179Z",
+          "kind": "completion",
+          "agent": "Explore:afc082c",
+          "detail": "completed",
+          "sourceKey": "session-stop:afc082c5e2758494f"
+        }
+      ]
+    }
+  ]
+}

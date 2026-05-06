@@ -1,0 +1,260 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1777880535294,
+  "projectRoot": "/Users/lpb/workspace/github/rag/zhilv-yuntu/backend",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml",
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      },
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "app",
+      "scripts",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 1,
+      "lastAccessed": 1777880535276,
+      "keyFiles": [
+        "config.py"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 5,
+      "lastAccessed": 1777880535277,
+      "keyFiles": [
+        "chengdu_guide.md",
+        "dali_guide.md",
+        "sanya_guide.md",
+        "xiamen_guide.md",
+        "xian_guide.md"
+      ]
+    },
+    "db": {
+      "path": "db",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1777880535279,
+      "keyFiles": []
+    },
+    "eval": {
+      "path": "eval",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1777880535280,
+      "keyFiles": [
+        "rag_eval_cases.json"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 8,
+      "lastAccessed": 1777880535280,
+      "keyFiles": [
+        "debug_rag_retrieval.py",
+        "evaluate_rag_retrieval.py",
+        "ingest_data.py",
+        "test_map_service.py",
+        "test_trip_edit_api.py"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 6,
+      "lastAccessed": 1777880535280,
+      "keyFiles": [
+        "test_api_trip.py",
+        "test_models_schemas.py",
+        "test_rag_retriever.py",
+        "test_services_trip.py",
+        "test_storage_service.py"
+      ]
+    },
+    "app/api": {
+      "path": "app/api",
+      "purpose": "API routes",
+      "fileCount": 1,
+      "lastAccessed": 1777880535281,
+      "keyFiles": [
+        "main.py"
+      ]
+    },
+    "app/models": {
+      "path": "app/models",
+      "purpose": "Data models",
+      "fileCount": 2,
+      "lastAccessed": 1777880535281,
+      "keyFiles": [
+        "db_models.py",
+        "schemas.py"
+      ]
+    },
+    "app/services": {
+      "path": "app/services",
+      "purpose": "Business logic services",
+      "fileCount": 6,
+      "lastAccessed": 1777880535281,
+      "keyFiles": [
+        "cache_service.py",
+        "export_service.py",
+        "map_service.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "app/rag/vector_db.py",
+      "accessCount": 14,
+      "lastAccessed": 1777883305290,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_rag_retriever.py",
+      "accessCount": 14,
+      "lastAccessed": 1777883305466,
+      "type": "file"
+    },
+    {
+      "path": "app/config.py",
+      "accessCount": 10,
+      "lastAccessed": 1777883734282,
+      "type": "file"
+    },
+    {
+      "path": ".env.example",
+      "accessCount": 7,
+      "lastAccessed": 1777883305406,
+      "type": "file"
+    },
+    {
+      "path": "app/__init__.py",
+      "accessCount": 5,
+      "lastAccessed": 1777881869614,
+      "type": "file"
+    },
+    {
+      "path": ".env",
+      "accessCount": 5,
+      "lastAccessed": 1777883981759,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_services_trip.py",
+      "accessCount": 5,
+      "lastAccessed": 1777884224599,
+      "type": "file"
+    },
+    {
+      "path": "app/services/trip_service.py",
+      "accessCount": 2,
+      "lastAccessed": 1777883755433,
+      "type": "file"
+    },
+    {
+      "path": "app/api/routes/trip.py",
+      "accessCount": 2,
+      "lastAccessed": 1777883803832,
+      "type": "file"
+    },
+    {
+      "path": "pyproject.toml",
+      "accessCount": 1,
+      "lastAccessed": 1777880893274,
+      "type": "file"
+    },
+    {
+      "path": "scripts/ingest_data.py",
+      "accessCount": 1,
+      "lastAccessed": 1777880932884,
+      "type": "file"
+    },
+    {
+      "path": "app/rag/retriever.py",
+      "accessCount": 1,
+      "lastAccessed": 1777880932911,
+      "type": "file"
+    },
+    {
+      "path": "app/models/schemas.py",
+      "accessCount": 1,
+      "lastAccessed": 1777883755303,
+      "type": "file"
+    },
+    {
+      "path": "app/services/map_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1777883755460,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_api_trip.py",
+      "accessCount": 1,
+      "lastAccessed": 1777883755563,
+      "type": "file"
+    },
+    {
+      "path": "app/agents/trip_planner_agent.py",
+      "accessCount": 1,
+      "lastAccessed": 1777883803849,
+      "type": "file"
+    },
+    {
+      "path": "app/api/main.py",
+      "accessCount": 1,
+      "lastAccessed": 1777883803889,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
