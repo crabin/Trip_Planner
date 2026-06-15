@@ -9,7 +9,7 @@ Optimize the AMap integration so trip planning can fetch richer real POI data fo
 - Phase 3: Implement richer POI/nearby search and normalization - complete
 - Phase 4: Connect enrichment to itinerary output where schema supports it - complete
 - Phase 5: Add focused tests - complete
-- Phase 6: Run verification - in_progress
+- Phase 6: Run verification - complete
 
 ## Decisions
 - Use AMap public Web Service fields only: POI id/name/type/address/location/photos/tel/business area/rating/cost/tags/distance.
@@ -32,4 +32,6 @@ Optimize the AMap integration so trip planning can fetch richer real POI data fo
 
 ## Verification
 - `uv run pytest tests/test_map_service.py -q` - passed, 3 tests
-- Corrected ruff run pending
+- `uv run ruff check app/services/map_service.py app/models/schemas.py tests/test_map_service.py` - passed
+- `uv run pytest tests/test_services_trip.py tests/test_models_schemas.py tests/test_map_service.py -q` - passed, 20 tests
+- `uv run pytest tests -q` - passed, 59 tests, 10 warnings
