@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from datetime import date as DateType, timedelta
 
 from app.agents.trip_planner_agent import (
@@ -35,15 +37,35 @@ TECHNICAL_TIP_KEYWORDS = (
     "trip_service",
 )
 
+CROSS_DESTINATION_TIP_TERMS = {
+    "成都": ("洱海", "大理古城", "双廊", "才村", "龙龛", "崇圣寺三塔", "喜洲"),
+    "大理": ("宽窄巷子", "武侯祠", "熊猫基地", "都江堰", "青城山", "锦里"),
+    "西安": ("洱海", "宽窄巷子", "熊猫基地", "鼓浪屿", "亚龙湾"),
+    "厦门": ("洱海", "宽窄巷子", "熊猫基地", "兵马俑", "亚龙湾"),
+    "三亚": ("洱海", "宽窄巷子", "熊猫基地", "兵马俑", "鼓浪屿"),
+}
+
+
+@dataclass(frozen=True)
+class TicketReference:
+    """从本地攻略片段中解析出的门票参考。"""
+
+    spot_title: str
+    cost: float
+    note: str
+
 
 def _clean_user_tips(tips: list[str], destination: str | None = None) -> list[str]:
     """过滤内部实现说明，只保留用户真正能用到的旅行建议。"""
     cleaned_tips: list[str] = []
+    blocked_terms = CROSS_DESTINATION_TIP_TERMS.get(destination or "", ())
     for tip in tips:
         normalized_tip = tip.strip()
         if not normalized_tip:
             continue
         if any(keyword in normalized_tip for keyword in TECHNICAL_TIP_KEYWORDS):
+            continue
+        if any(term in normalized_tip for term in blocked_terms):
             continue
         if normalized_tip not in cleaned_tips:
             cleaned_tips.append(normalized_tip)
@@ -97,6 +119,99 @@ def _build_contextual_cycling_tip(destination: str, rag_contexts: list[str]) -> 
 def _stable_bucket(text: str, modulo: int) -> int:
     """基于文本生成一个稳定桶值，用来做确定性的价格浮动。"""
     return sum(ord(char) for char in text) % modulo if modulo > 0 else 0
+
+
+def _normalize_spot_title(value: str) -> str:
+    """清理攻略标题中的编号和补充括号，便于和模型生成景点名匹配。"""
+    normalized = re.sub(r"^\s*\d+(?:\.\d+)*\s*", "", value).strip()
+    normalized = re.sub(r"\s*[\(（].*?[\)）]\s*", "", normalized).strip()
+    return normalized
+
+
+def _extract_context_title(context: str) -> str | None:
+    match = re.search(r"标题:\s*([^\]]+)\]", context)
+    if match:
+        return _normalize_spot_title(match.group(1))
+
+    markdown_match = re.search(r"^#+\s+(.+)$", context, flags=re.MULTILINE)
+    if markdown_match:
+        return _normalize_spot_title(markdown_match.group(1))
+    return None
+
+
+def _extract_ticket_note(context: str) -> str | None:
+    match = re.search(r"\*\*\s*门票\s*\*\*\s*[：:]\s*([^\n]+)", context)
+    if match:
+        return match.group(1).strip()
+
+    plain_match = re.search(r"门票\s*[：:]\s*([^\n]+)", context)
+    if plain_match:
+        return plain_match.group(1).strip()
+    return None
+
+
+def _parse_ticket_cost(ticket_note: str) -> float | None:
+    """把攻略里的门票说明转成价格；租赁等附加费用只保留在说明中。"""
+    if "免费" in ticket_note:
+        return 0.0
+
+    match = re.search(r"(\d+(?:\.\d+)?)\s*元", ticket_note)
+    if match:
+        return float(match.group(1))
+    return None
+
+
+def _build_ticket_reference_index(rag_contexts: list[str]) -> dict[str, TicketReference]:
+    """从 RAG 上下文中提取景点门票参考，供 itinerary 组装阶段使用。"""
+    references: dict[str, TicketReference] = {}
+    for context in rag_contexts:
+        title = _extract_context_title(context)
+        ticket_note = _extract_ticket_note(context)
+        if not title or not ticket_note:
+            continue
+
+        ticket_cost = _parse_ticket_cost(ticket_note)
+        if ticket_cost is None:
+            continue
+
+        references[title] = TicketReference(
+            spot_title=title,
+            cost=ticket_cost,
+            note=ticket_note,
+        )
+    return references
+
+
+def _find_ticket_reference(
+    spot_name: str,
+    ticket_references: dict[str, TicketReference],
+) -> TicketReference | None:
+    normalized_spot_name = _normalize_spot_title(spot_name)
+    for title, reference in ticket_references.items():
+        if normalized_spot_name in title or title in normalized_spot_name:
+            return reference
+    return None
+
+
+def _resolve_ticket_cost(
+    spot_name: str,
+    description: str | None,
+    ticket_references: dict[str, TicketReference],
+) -> tuple[float, str | None]:
+    reference = _find_ticket_reference(spot_name, ticket_references)
+    if reference is not None:
+        return reference.cost, reference.note
+    return _estimate_ticket_cost(spot_name, description), None
+
+
+def _append_ticket_note_to_description(description: str, ticket_note: str | None) -> str:
+    if not ticket_note:
+        return description
+
+    ticket_text = f"门票参考本地攻略：{ticket_note}"
+    if ticket_text in description:
+        return description
+    return f"{description} {ticket_text}。"
 
 
 def _prorate_amounts(total: float, weights: list[float]) -> list[float]:
@@ -259,6 +374,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         pace=request.pace,
         special_notes=request.special_notes,
     )
+    ticket_references = _build_ticket_reference_index(rag_contexts)
     llm_draft = generate_planner_draft(request, rag_contexts, day_count)
     fallback_spot_names = _build_demo_spot_names(request.destination, rag_contexts, day_count)
 
@@ -289,7 +405,11 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
             if llm_day is not None
             else "今天以轻松游览为主，建议根据体力和天气灵活调整停留时间。"
         )
-        ticket_cost = _estimate_ticket_cost(spot_name, spot_description)
+        ticket_cost, ticket_note = _resolve_ticket_cost(
+            spot_name,
+            spot_description,
+            ticket_references,
+        )
 
         raw_days.append(
             {
@@ -302,6 +422,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
                 "meal_note": meal_note,
                 "daily_note": daily_note,
                 "ticket_cost": ticket_cost,
+                "ticket_note": ticket_note,
             }
         )
         ticket_costs.append(ticket_cost)
@@ -356,7 +477,10 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
                     name=spot_name,
                     start_time="10:00",
                     end_time="12:00",
-                    description=str(raw_day["spot_description"]),
+                    description=_append_ticket_note_to_description(
+                        str(raw_day["spot_description"]),
+                        str(raw_day["ticket_note"]) if raw_day["ticket_note"] else None,
+                    ),
                     estimated_cost=float(raw_day["ticket_cost"]),
                     location=request.destination,
                 )
@@ -450,7 +574,6 @@ def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
         except (IndexError, ValueError):
             pass
 
-    llm_edit_applied = False
     if target_day is not None:
         day_edit_draft = generate_day_edit_draft(request, target_day)
         if day_edit_draft is not None:
@@ -475,7 +598,6 @@ def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
             else:
                 target_day.notes.append(day_edit_draft.daily_note)
 
-            llm_edit_applied = True
         else:
             if "轻松" in request.user_instruction:
                 target_day.theme = f"{target_day.theme}（已调整为更轻松）"

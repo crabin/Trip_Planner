@@ -58,6 +58,11 @@ class SpotItem(BaseModel):
     latitude: float | None = Field(default=None, description="景点纬度")
     longitude: float | None = Field(default=None, description="景点经度")
     poi_id: str | None = Field(default=None, description="地图服务返回的 POI 标识")
+    map_rating: float | None = Field(default=None, ge=0, description="地图服务评分")
+    map_average_cost: float | None = Field(default=None, ge=0, description="地图服务参考人均或均价")
+    map_tags: list[str] = Field(default_factory=list, description="地图服务标签")
+    map_tel: str | None = Field(default=None, description="地图服务电话")
+    map_distance_meters: float | None = Field(default=None, ge=0, description="地图服务返回的距离")
 
 
 class MealItem(BaseModel):
@@ -67,6 +72,16 @@ class MealItem(BaseModel):
     meal_type: str = Field(..., description="早餐、午餐、晚餐等")
     estimated_cost: float = Field(default=0.0, ge=0, description="预估花费")
     notes: str | None = Field(default=None, description="补充说明")
+    image_url: str | None = Field(default=None, description="餐厅图片地址")
+    address: str | None = Field(default=None, description="餐厅详细地址")
+    latitude: float | None = Field(default=None, description="餐厅纬度")
+    longitude: float | None = Field(default=None, description="餐厅经度")
+    poi_id: str | None = Field(default=None, description="地图服务返回的 POI 标识")
+    map_rating: float | None = Field(default=None, ge=0, description="地图服务评分")
+    map_average_cost: float | None = Field(default=None, ge=0, description="地图服务参考人均消费")
+    map_tags: list[str] = Field(default_factory=list, description="地图服务标签")
+    map_tel: str | None = Field(default=None, description="地图服务电话")
+    map_distance_meters: float | None = Field(default=None, ge=0, description="距离参考点的米数")
 
 
 class HotelItem(BaseModel):
@@ -79,6 +94,13 @@ class HotelItem(BaseModel):
     address: str | None = Field(default=None, description="酒店详细地址")
     latitude: float | None = Field(default=None, description="酒店纬度")
     longitude: float | None = Field(default=None, description="酒店经度")
+    image_url: str | None = Field(default=None, description="酒店图片地址")
+    poi_id: str | None = Field(default=None, description="地图服务返回的 POI 标识")
+    map_rating: float | None = Field(default=None, ge=0, description="地图服务评分")
+    map_average_cost: float | None = Field(default=None, ge=0, description="地图服务参考均价")
+    map_tags: list[str] = Field(default_factory=list, description="地图服务标签")
+    map_tel: str | None = Field(default=None, description="地图服务电话")
+    map_distance_meters: float | None = Field(default=None, ge=0, description="距离参考点的米数")
 
 
 class TransportItem(BaseModel):

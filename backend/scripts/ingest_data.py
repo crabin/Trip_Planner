@@ -19,9 +19,10 @@ from app.rag.vector_db import (
 
 def main() -> int:
     chunks = load_guide_chunks()
-    target_name = "本地 embedding 索引" if _should_use_ollama_embeddings() else "Chroma"
-    print(f"=== 准备写入 {target_name} ===")
+    embedding_provider = "Ollama 原生 embedding" if _should_use_ollama_embeddings() else "OpenAI-compatible embedding"
+    print("=== 准备写入 Chroma 向量库 ===")
     print(f"chunk_count: {len(chunks)}")
+    print(f"embedding_provider: {embedding_provider}")
     print(f"embedding_model: {EMBEDDING_MODEL}")
     print(f"chroma_db_dir: {CHROMA_DB_DIR}")
     print(f"collection_name: {CHROMA_COLLECTION_NAME}")

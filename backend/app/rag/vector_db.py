@@ -389,10 +389,14 @@ def _get_chroma_collection():
     """获取 Chroma collection。"""
     try:
         import chromadb
+        from chromadb.config import Settings
     except ImportError:
         return None
 
-    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+    client = chromadb.PersistentClient(
+        path=str(CHROMA_DB_DIR),
+        settings=Settings(anonymized_telemetry=False),
+    )
     return client.get_or_create_collection(
         name=CHROMA_COLLECTION_NAME,
         metadata={"hnsw:space": "cosine"},
@@ -453,9 +457,6 @@ def ingest_guide_chunks_to_chroma() -> int:
     4. 生成向量
     5. 把向量、文本和 metadata 一起写入 Chroma
     """
-    if _should_use_ollama_embeddings():
-        return len(_build_local_embedding_index())
-
     embeddings = _build_embeddings()
     collection = _get_chroma_collection()
     chunks = load_guide_chunks()
@@ -578,15 +579,6 @@ def search_guide_chunks(
 
     优先走 Chroma 向量检索；如果当前环境还没准备好，再回退到关键词检索。
     """
-    if _should_use_ollama_embeddings():
-        embedding_results = _search_guide_chunks_by_local_embeddings(
-            query=query,
-            top_k=top_k,
-            destination=destination,
-        )
-        if embedding_results:
-            return embedding_results
-
     chroma_results = _search_guide_chunks_by_chroma(
         query=query,
         top_k=top_k,

@@ -12,7 +12,7 @@ from app.config import (
     AMAP_TIMEOUT_SECONDS,
     REDIS_MAP_TTL_SECONDS,
 )
-from app.models.schemas import HotelItem, Itinerary, SpotItem, TransportItem
+from app.models.schemas import HotelItem, Itinerary, MealItem, SpotItem, TransportItem
 from app.services.cache_service import get_cached_json, set_cached_json
 
 
@@ -51,9 +51,42 @@ def _request_amap(path: str, params: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _build_amap_url(path: str, api_version: str = "v3") -> str:
+    """根据配置的 base url 拼出指定版本的高德 Web 服务地址。"""
+    base_url = AMAP_BASE_URL.rstrip("/")
+    if api_version and base_url.endswith(("/v3", "/v5")):
+        base_url = f"{base_url.rsplit('/', 1)[0]}/{api_version}"
+    return f"{base_url}{path}"
+
+
+def _request_amap_versioned(
+    path: str,
+    params: dict[str, Any],
+    api_version: str = "v3",
+) -> dict[str, Any]:
+    """调用指定版本的高德地图 API 并返回 JSON 结果。"""
+    _ensure_amap_api_key()
+
+    request_params = {
+        "key": AMAP_API_KEY,
+        **params,
+    }
+
+    with _build_client() as client:
+        response = client.get(_build_amap_url(path, api_version), params=request_params)
+        response.raise_for_status()
+        payload = response.json()
+
+    if str(payload.get("status")) != "1":
+        info = payload.get("info", "未知错误")
+        raise RuntimeError(f"高德地图接口调用失败：{info}")
+
+    return payload
+
+
 def _parse_float(value: str | None) -> float | None:
     """把字符串安全转换成浮点数。"""
-    if value in (None, ""):
+    if value in (None, "", []):
         return None
     try:
         return float(value)
@@ -75,6 +108,169 @@ def _normalize_cache_text(value: str | None) -> str:
     if value is None:
         return ""
     return value.strip().lower()
+
+
+def _first_text(value: Any) -> str | None:
+    """把高德可能返回的空数组、字符串或数字统一成可用文本。"""
+    if value in (None, "", []):
+        return None
+    if isinstance(value, list):
+        for item in value:
+            text = _first_text(item)
+            if text:
+                return text
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _extract_poi_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """兼容 v3 与 v5 的 POI 列表响应形状。"""
+    pois = payload.get("pois", [])
+    if isinstance(pois, list):
+        return [poi for poi in pois if isinstance(poi, dict)]
+    if isinstance(pois, dict):
+        poi_value = pois.get("poi", [])
+        if isinstance(poi_value, list):
+            return [poi for poi in poi_value if isinstance(poi, dict)]
+        if isinstance(poi_value, dict):
+            return [poi_value]
+    return []
+
+
+def _extract_photos(poi: dict[str, Any], business: dict[str, Any]) -> list[dict[str, Any]]:
+    photos = poi.get("photos")
+    if not isinstance(photos, list):
+        navi = business.get("navi") if isinstance(business.get("navi"), dict) else {}
+        photos = navi.get("photos") if isinstance(navi.get("photos"), list) else []
+    return [photo for photo in photos if isinstance(photo, dict)]
+
+
+def _split_tags(value: Any) -> list[str]:
+    text = _first_text(value)
+    if not text:
+        return []
+    separators = [";", "|", ",", "，"]
+    values = [text]
+    for separator in separators:
+        next_values: list[str] = []
+        for item in values:
+            next_values.extend(item.split(separator))
+        values = next_values
+    return [item.strip() for item in values if item.strip()]
+
+
+def _normalize_poi(poi: dict[str, Any]) -> dict[str, Any]:
+    """把高德 POI 转成应用内部稳定字段。"""
+    business = poi.get("business") if isinstance(poi.get("business"), dict) else {}
+    biz_ext = poi.get("biz_ext") if isinstance(poi.get("biz_ext"), dict) else {}
+    latitude, longitude = _split_location(_first_text(poi.get("location")))
+    photos = _extract_photos(poi, business)
+    first_photo = photos[0] if photos else {}
+
+    rating = _parse_float(_first_text(business.get("rating") or biz_ext.get("rating")))
+    average_cost = _parse_float(_first_text(business.get("cost") or biz_ext.get("cost")))
+
+    return {
+        "name": _first_text(poi.get("name")),
+        "address": _first_text(poi.get("address")),
+        "cityname": _first_text(poi.get("cityname")),
+        "adname": _first_text(poi.get("adname")),
+        "type": _first_text(poi.get("type")),
+        "typecode": _first_text(poi.get("typecode")),
+        "poi_id": _first_text(poi.get("id")),
+        "image_url": _first_text(first_photo.get("url")),
+        "latitude": latitude,
+        "longitude": longitude,
+        "business_area": _first_text(business.get("business_area") or poi.get("business_area")),
+        "map_rating": rating,
+        "map_average_cost": average_cost,
+        "map_tags": _split_tags(business.get("tag") or poi.get("tag")),
+        "map_tel": _first_text(business.get("tel") or poi.get("tel")),
+        "map_distance_meters": _parse_float(_first_text(poi.get("distance"))),
+    }
+
+
+def _rank_places(places: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """优先选择评分较高、距离较近、信息更完整的 POI。"""
+
+    def score(place: dict[str, Any]) -> tuple[float, float, int]:
+        rating = place.get("map_rating") or 0.0
+        distance = place.get("map_distance_meters")
+        has_photo = 1 if place.get("image_url") else 0
+        return (float(rating), -float(distance if distance is not None else 999999), has_photo)
+
+    return sorted(places, key=score, reverse=True)
+
+
+def _copy_place_to_spot(spot: SpotItem, place: dict[str, Any]) -> None:
+    spot.address = place.get("address") or spot.address
+    spot.image_url = place.get("image_url") or spot.image_url
+    spot.latitude = place.get("latitude")
+    spot.longitude = place.get("longitude")
+    spot.poi_id = place.get("poi_id") or spot.poi_id
+    spot.map_rating = place.get("map_rating")
+    spot.map_average_cost = place.get("map_average_cost")
+    spot.map_tags = place.get("map_tags") or spot.map_tags
+    spot.map_tel = place.get("map_tel")
+    spot.map_distance_meters = place.get("map_distance_meters")
+
+
+def _copy_place_to_hotel(hotel: HotelItem, place: dict[str, Any]) -> None:
+    if place.get("name"):
+        hotel.name = place["name"]
+    hotel.address = place.get("address") or hotel.address
+    hotel.latitude = place.get("latitude")
+    hotel.longitude = place.get("longitude")
+    hotel.image_url = place.get("image_url") or hotel.image_url
+    hotel.poi_id = place.get("poi_id") or hotel.poi_id
+    hotel.map_rating = place.get("map_rating")
+    hotel.map_average_cost = place.get("map_average_cost")
+    hotel.map_tags = place.get("map_tags") or hotel.map_tags
+    hotel.map_tel = place.get("map_tel")
+    hotel.map_distance_meters = place.get("map_distance_meters")
+    if place.get("business_area") and not hotel.location:
+        hotel.location = place["business_area"]
+
+
+def _copy_place_to_meal(meal: MealItem, place: dict[str, Any]) -> None:
+    if place.get("name"):
+        meal.name = place["name"]
+    meal.address = place.get("address") or meal.address
+    meal.latitude = place.get("latitude")
+    meal.longitude = place.get("longitude")
+    meal.image_url = place.get("image_url") or meal.image_url
+    meal.poi_id = place.get("poi_id") or meal.poi_id
+    meal.map_rating = place.get("map_rating")
+    meal.map_average_cost = place.get("map_average_cost")
+    meal.map_tags = place.get("map_tags") or meal.map_tags
+    meal.map_tel = place.get("map_tel")
+    meal.map_distance_meters = place.get("map_distance_meters")
+
+    detail_parts: list[str] = []
+    if meal.notes:
+        detail_parts.append(meal.notes)
+    if meal.map_rating is not None:
+        detail_parts.append(f"高德评分 {meal.map_rating:g}")
+    if meal.map_average_cost is not None:
+        detail_parts.append(f"参考人均 ¥{meal.map_average_cost:g}")
+    if meal.map_tags:
+        detail_parts.append("标签：" + "、".join(meal.map_tags[:3]))
+    meal.notes = "；".join(detail_parts) if detail_parts else meal.notes
+
+
+def _is_placeholder_meal_name(name: str) -> bool:
+    """识别规则生成的泛化餐饮名，避免覆盖用户或 LLM 明确指定的餐厅。"""
+    placeholder_keywords = [
+        "特色餐饮",
+        "餐饮推荐",
+        "午餐推荐",
+        "晚餐推荐",
+        "早餐推荐",
+        "美食推荐",
+        "简餐",
+    ]
+    return any(keyword in name for keyword in placeholder_keywords)
 
 
 def geocode_address(address: str, city: str | None = None) -> dict[str, Any] | None:
@@ -141,28 +337,99 @@ def search_places(
         },
     )
 
-    pois = payload.get("pois", [])
-    results: list[dict[str, Any]] = []
-    for poi in pois:
-        latitude, longitude = _split_location(poi.get("location"))
-        photos = poi.get("photos") if isinstance(poi.get("photos"), list) else []
-        first_photo = photos[0] if photos and isinstance(photos[0], dict) else {}
-        results.append(
-            {
-                "name": poi.get("name"),
-                "address": poi.get("address"),
-                "cityname": poi.get("cityname"),
-                "adname": poi.get("adname"),
-                "type": poi.get("type"),
-                "poi_id": poi.get("id"),
-                "image_url": first_photo.get("url"),
-                "latitude": latitude,
-                "longitude": longitude,
-            }
-        )
+    results = [_normalize_poi(poi) for poi in _extract_poi_list(payload)]
 
     set_cached_json(cache_key, results, expire_seconds=REDIS_MAP_TTL_SECONDS)
     return results
+
+
+def search_nearby_places(
+    longitude: float,
+    latitude: float,
+    poi_types: str | None = None,
+    keywords: str | None = None,
+    radius: int = 3000,
+    page_size: int = 10,
+) -> list[dict[str, Any]]:
+    """搜索指定坐标附近的 POI，并返回按评分/距离排序后的结果。"""
+    cache_key = (
+        "map:nearby:"
+        f"{longitude:.6f},{latitude:.6f}:"
+        f"{_normalize_cache_text(poi_types)}:{_normalize_cache_text(keywords)}:"
+        f"{radius}:{page_size}"
+    )
+    cached_value = get_cached_json(cache_key)
+    if cached_value is not None:
+        logger.info("map nearby cache hit: longitude=%s latitude=%s", longitude, latitude)
+        return cached_value
+    logger.info("map nearby cache miss: longitude=%s latitude=%s", longitude, latitude)
+
+    try:
+        payload = _request_amap_versioned(
+            "/place/around",
+            {
+                "location": f"{longitude},{latitude}",
+                "types": poi_types or "",
+                "keywords": keywords or "",
+                "radius": radius,
+                "sortrule": "distance",
+                "show_fields": "business,photos",
+                "page_size": page_size,
+                "page_num": 1,
+                "output": "JSON",
+            },
+            api_version="v5",
+        )
+    except RuntimeError:
+        payload = _request_amap(
+            "/place/around",
+            {
+                "location": f"{longitude},{latitude}",
+                "types": poi_types or "",
+                "keywords": keywords or "",
+                "radius": radius,
+                "offset": page_size,
+                "page": 1,
+                "extensions": "all",
+                "output": "JSON",
+            },
+        )
+
+    results = _rank_places([_normalize_poi(poi) for poi in _extract_poi_list(payload)])
+    set_cached_json(cache_key, results, expire_seconds=REDIS_MAP_TTL_SECONDS)
+    return results
+
+
+def recommend_nearby_hotels(
+    longitude: float,
+    latitude: float,
+    radius: int = 3000,
+    page_size: int = 10,
+) -> list[dict[str, Any]]:
+    """推荐参考点附近的住宿 POI。"""
+    return search_nearby_places(
+        longitude=longitude,
+        latitude=latitude,
+        poi_types="100000",
+        radius=radius,
+        page_size=page_size,
+    )
+
+
+def recommend_nearby_restaurants(
+    longitude: float,
+    latitude: float,
+    radius: int = 2000,
+    page_size: int = 10,
+) -> list[dict[str, Any]]:
+    """推荐参考点附近的餐饮 POI。"""
+    return search_nearby_places(
+        longitude=longitude,
+        latitude=latitude,
+        poi_types="050000",
+        radius=radius,
+        page_size=page_size,
+    )
 
 
 def estimate_route(
@@ -248,11 +515,7 @@ def _enrich_spot(spot: SpotItem, city: str | None = None) -> bool:
         spot.longitude = geocode.get("longitude")
         return True
 
-    spot.address = place.get("address") or spot.address
-    spot.image_url = place.get("image_url") or spot.image_url
-    spot.latitude = place.get("latitude")
-    spot.longitude = place.get("longitude")
-    spot.poi_id = place.get("poi_id") or spot.poi_id
+    _copy_place_to_spot(spot, place)
     return True
 
 
@@ -272,9 +535,37 @@ def _enrich_hotel(hotel: HotelItem, city: str | None = None) -> bool:
         hotel.longitude = geocode.get("longitude")
         return True
 
-    hotel.address = place.get("address") or hotel.address
-    hotel.latitude = place.get("latitude")
-    hotel.longitude = place.get("longitude")
+    _copy_place_to_hotel(hotel, place)
+    return True
+
+
+def _enrich_hotel_near_spot(hotel: HotelItem, spot: SpotItem) -> bool:
+    """基于景点坐标推荐附近住宿。"""
+    if spot.latitude is None or spot.longitude is None:
+        return False
+    places = recommend_nearby_hotels(
+        longitude=spot.longitude,
+        latitude=spot.latitude,
+    )
+    if not places:
+        return False
+    _copy_place_to_hotel(hotel, places[0])
+    return True
+
+
+def _enrich_meal_near_spot(meal: MealItem, spot: SpotItem) -> bool:
+    """基于景点坐标推荐附近餐厅。"""
+    if not _is_placeholder_meal_name(meal.name):
+        return False
+    if spot.latitude is None or spot.longitude is None:
+        return False
+    places = recommend_nearby_restaurants(
+        longitude=spot.longitude,
+        latitude=spot.latitude,
+    )
+    if not places:
+        return False
+    _copy_place_to_meal(meal, places[0])
     return True
 
 
@@ -341,12 +632,31 @@ def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None
             except Exception:
                 continue
 
+        reference_spot = next(
+            (
+                spot
+                for spot in day.spots
+                if spot.latitude is not None and spot.longitude is not None
+            ),
+            None,
+        )
+
         if day.hotel is not None:
             try:
-                if _enrich_hotel(day.hotel, city=city or itinerary.destination):
+                if reference_spot is not None and _enrich_hotel_near_spot(day.hotel, reference_spot):
+                    enriched_count += 1
+                elif _enrich_hotel(day.hotel, city=city or itinerary.destination):
                     enriched_count += 1
             except Exception:
                 pass
+
+        if reference_spot is not None:
+            for meal in day.meals:
+                try:
+                    if _enrich_meal_near_spot(meal, reference_spot):
+                        enriched_count += 1
+                except Exception:
+                    continue
 
         for transport in day.transport:
             try:
@@ -356,7 +666,7 @@ def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None
                 continue
 
     if enriched_count > 0:
-        note = "已补充高德地图地址、坐标或路线估算信息。"
+        note = "已补充高德地图地址、坐标、评分、参考消费、附近餐饮住宿或路线估算信息。"
         if note not in itinerary.source_notes:
             itinerary.source_notes.append(note)
 

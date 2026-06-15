@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -9,11 +10,16 @@ from typing import Any
 
 CURRENT_FILE = Path(__file__).resolve()
 BACKEND_DIR = CURRENT_FILE.parent.parent
+FIXED_CHROMA_DB_DIR = BACKEND_DIR / "db" / "chroma_db"
+os.environ["CHROMA_DB_DIR"] = str(FIXED_CHROMA_DB_DIR)
+
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.agents.tools.rag_tool import build_destination_query
-from app.rag.retriever import retrieve_travel_guide_chunks
+from app.agents.tools.rag_tool import build_destination_query  # noqa: E402
+from app.config import CHROMA_COLLECTION_NAME, EMBEDDING_MODEL  # noqa: E402
+from app.rag.retriever import rerank_guide_chunks  # noqa: E402
+from app.rag.vector_db import _build_embeddings, _resolve_chunk_destination  # noqa: E402
 
 
 DEFAULT_CASES_PATH = BACKEND_DIR / "eval" / "rag_eval_cases.json"
@@ -45,6 +51,98 @@ def _is_cross_destination_chunk(chunk: dict[str, Any], destination: str) -> bool
     return destination not in combined_text
 
 
+def _get_existing_chroma_collection() -> Any:
+    """只读取 backend/db/chroma_db 中已有的 Chroma collection。"""
+    if not FIXED_CHROMA_DB_DIR.exists():
+        raise FileNotFoundError(
+            f"Chroma DB directory does not exist: {FIXED_CHROMA_DB_DIR}"
+        )
+
+    try:
+        import chromadb
+        from chromadb.config import Settings
+    except ImportError as error:
+        raise RuntimeError("当前环境缺少 chromadb，无法验证 Chroma 向量库。") from error
+
+    client = chromadb.PersistentClient(
+        path=str(FIXED_CHROMA_DB_DIR),
+        settings=Settings(anonymized_telemetry=False),
+    )
+    try:
+        collection = client.get_collection(name=CHROMA_COLLECTION_NAME)
+    except Exception as error:
+        raise RuntimeError(
+            "无法从固定目录读取 Chroma collection: "
+            f"db_dir={FIXED_CHROMA_DB_DIR} collection={CHROMA_COLLECTION_NAME}"
+        ) from error
+
+    count = collection.count()
+    if count <= 0:
+        raise RuntimeError(
+            "固定 Chroma collection 为空: "
+            f"db_dir={FIXED_CHROMA_DB_DIR} collection={CHROMA_COLLECTION_NAME}"
+        )
+    return collection
+
+
+def _search_chroma_db_only(
+    query: str, top_k: int = 3, destination: str | None = None
+) -> list[dict[str, str]]:
+    """使用固定 Chroma 向量库检索，不回退到关键词索引或本地 JSON 索引。"""
+    embeddings = _build_embeddings()
+    if embeddings is None:
+        raise RuntimeError(
+            "当前环境缺少 embedding 能力，无法查询固定 Chroma 向量库。"
+        )
+
+    collection = _get_existing_chroma_collection()
+    query_embedding = embeddings.embed_query(query)
+    query_kwargs: dict[str, Any] = {
+        "query_embeddings": [query_embedding],
+        "n_results": top_k,
+        "include": ["documents", "metadatas"],
+    }
+    if destination:
+        query_kwargs["where"] = {"destination": destination}
+
+    result = collection.query(**query_kwargs)
+    documents = result.get("documents", [[]])[0]
+    metadatas = result.get("metadatas", [[]])[0]
+
+    matched_chunks: list[dict[str, str]] = []
+    for document, metadata in zip(documents, metadatas):
+        metadata = metadata or {}
+        title = str(metadata.get("title", "未命名片段"))
+        source = str(metadata.get("source", "未知来源"))
+        chunk_destination = str(
+            metadata.get("destination") or _resolve_chunk_destination(source)
+        )
+        text = document.split("\n", 1)[1] if "\n" in document else document
+        matched_chunks.append(
+            {
+                "title": title,
+                "text": text,
+                "source": source,
+                "destination": chunk_destination,
+            }
+        )
+    return matched_chunks
+
+
+def _retrieve_chroma_db_only_chunks(
+    query: str, top_k: int = 3, destination: str | None = None
+) -> list[dict[str, str]]:
+    candidate_k = max(top_k * 4, 12)
+    matched_chunks = _search_chroma_db_only(
+        query=query,
+        top_k=candidate_k,
+        destination=destination,
+    )
+    return rerank_guide_chunks(
+        query=query, matched_chunks=matched_chunks, top_k=top_k, destination=destination
+    )
+
+
 def _evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     top_k = int(case.get("top_k", 5))
     destination = str(case["destination"])
@@ -54,7 +152,9 @@ def _evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         pace=case.get("pace"),
         special_notes=case.get("special_notes"),
     )
-    chunks = retrieve_travel_guide_chunks(query=query, top_k=top_k, destination=destination)
+    chunks = _retrieve_chroma_db_only_chunks(
+        query=query, top_k=top_k, destination=destination
+    )
 
     expected_title_keywords = list(case.get("expected_title_keywords", []))
     required_content_keywords = list(case.get("required_content_keywords", []))
@@ -129,6 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    print("=== RAG Retrieval Evaluation ===")
+    print(f"chroma_db_dir: {FIXED_CHROMA_DB_DIR}")
+    print(f"collection_name: {CHROMA_COLLECTION_NAME}")
+    print(f"embedding_model: {EMBEDDING_MODEL}")
+    print()
+
     cases = _load_cases(args.cases)
     results = [_evaluate_case(case) for case in cases]
 

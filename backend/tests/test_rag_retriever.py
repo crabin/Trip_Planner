@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 import sys
 import types
@@ -180,15 +179,23 @@ def test_ollama_embeddings_client_calls_native_embed_api(monkeypatch) -> None:
     assert captured["timeout"] == 60
 
 
-def test_ingest_guide_chunks_builds_local_index_for_ollama(monkeypatch, tmp_path) -> None:
-    """测试 Ollama 配置下会构建本地 JSON 向量索引。"""
+def test_ingest_guide_chunks_writes_chroma_with_ollama_embeddings(monkeypatch) -> None:
+    """测试 Ollama 配置下也会用生成好的向量写入 Chroma。"""
 
     class FakeEmbeddings:
         def embed_documents(self, documents: list[str]) -> list[list[float]]:
             assert len(documents) == 2
             return [[0.1, 0.2], [0.3, 0.4]]
 
-    monkeypatch.setattr(vector_db, "LOCAL_EMBEDDING_INDEX_PATH", tmp_path / "guide_embeddings.json")
+    class FakeCollection:
+        def __init__(self) -> None:
+            self.upsert_kwargs: dict[str, object] = {}
+
+        def upsert(self, **kwargs) -> None:
+            self.upsert_kwargs = kwargs
+
+    collection = FakeCollection()
+
     monkeypatch.setattr(vector_db, "EMBEDDING_MODEL", "nomic-embed-text:latest")
     monkeypatch.setattr(vector_db, "EMBEDDING_BASE_URL", "http://ollama-host:11434/")
     monkeypatch.setattr(vector_db, "EMBEDDING_API_KEY", "")
@@ -201,55 +208,48 @@ def test_ingest_guide_chunks_builds_local_index_for_ollama(monkeypatch, tmp_path
         ],
     )
     monkeypatch.setattr(vector_db, "_build_embeddings", lambda: FakeEmbeddings())
+    monkeypatch.setattr(vector_db, "_get_chroma_collection", lambda: collection)
 
     written_count = vector_db.ingest_guide_chunks_to_chroma()
 
     assert written_count == 2
-    payload = json.loads((tmp_path / "guide_embeddings.json").read_text(encoding="utf-8"))
-    assert payload["model"] == "nomic-embed-text:latest"
-    assert len(payload["records"]) == 2
+    assert collection.upsert_kwargs["ids"] == ["1", "2"]
+    assert collection.upsert_kwargs["documents"] == [
+        "大理古城\n适合慢游。",
+        "洱海\n适合看日落。",
+    ]
+    assert collection.upsert_kwargs["embeddings"] == [[0.1, 0.2], [0.3, 0.4]]
+    assert collection.upsert_kwargs["metadatas"] == [
+        {"title": "大理古城", "source": "dali.md", "destination": "dali"},
+        {"title": "洱海", "source": "dali.md", "destination": "dali"},
+    ]
 
 
-def test_search_guide_chunks_uses_local_embeddings_for_ollama(monkeypatch, tmp_path) -> None:
-    """测试当前 Ollama 配置下会优先走本地向量索引检索。"""
+def test_search_guide_chunks_uses_chroma_with_ollama(monkeypatch) -> None:
+    """测试当前 Ollama 配置下会优先走 Chroma 检索。"""
 
     class FakeEmbeddings:
         def embed_query(self, query: str) -> list[float]:
             assert query == "大理 古城"
             return [1.0, 0.0]
 
-    monkeypatch.setattr(vector_db, "LOCAL_EMBEDDING_INDEX_PATH", tmp_path / "guide_embeddings.json")
+    class FakeCollection:
+        def count(self) -> int:
+            return 2
+
+        def query(self, **kwargs):
+            assert kwargs["query_embeddings"] == [[1.0, 0.0]]
+            assert kwargs["n_results"] == 1
+            return {
+                "documents": [["大理古城\n适合慢游和拍照。"]],
+                "metadatas": [[{"title": "大理古城", "source": "dali.md", "destination": "大理"}]],
+            }
+
     monkeypatch.setattr(vector_db, "EMBEDDING_MODEL", "nomic-embed-text:latest")
     monkeypatch.setattr(vector_db, "EMBEDDING_BASE_URL", "http://ollama-host:11434/")
     monkeypatch.setattr(vector_db, "EMBEDDING_API_KEY", "")
     monkeypatch.setattr(vector_db, "_build_embeddings", lambda: FakeEmbeddings())
-    monkeypatch.setattr(
-        vector_db,
-        "_load_local_embedding_index",
-        lambda: [
-            {
-                "title": "大理古城",
-                "text": "适合慢游和拍照。",
-                "source": "dali.md",
-                "destination": "大理",
-                "embedding": [1.0, 0.0],
-            },
-            {
-                "title": "洱海",
-                "text": "适合环海。",
-                "source": "dali.md",
-                "destination": "大理",
-                "embedding": [0.0, 1.0],
-            },
-        ],
-    )
-    monkeypatch.setattr(
-        vector_db,
-        "_search_guide_chunks_by_chroma",
-        lambda query, top_k=3, destination=None: (_ for _ in ()).throw(
-            AssertionError("不应走 Chroma")
-        ),
-    )
+    monkeypatch.setattr(vector_db, "_get_chroma_collection", lambda: FakeCollection())
 
     results = vector_db.search_guide_chunks("大理 古城", top_k=1)
 
@@ -261,6 +261,38 @@ def test_search_guide_chunks_uses_local_embeddings_for_ollama(monkeypatch, tmp_p
             "destination": "大理",
         }
     ]
+
+
+def test_search_guide_chunks_falls_back_to_keywords_for_ollama_without_json_index(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """测试 Chroma 不可用时，Ollama 配置不会再自动构建 JSON 索引。"""
+
+    monkeypatch.setattr(vector_db, "LOCAL_EMBEDDING_INDEX_PATH", tmp_path / "guide_embeddings.json")
+    monkeypatch.setattr(vector_db, "EMBEDDING_MODEL", "nomic-embed-text:latest")
+    monkeypatch.setattr(vector_db, "EMBEDDING_BASE_URL", "http://ollama-host:11434/")
+    monkeypatch.setattr(vector_db, "EMBEDDING_API_KEY", "")
+    monkeypatch.setattr(vector_db, "_search_guide_chunks_by_chroma", lambda **kwargs: [])
+    monkeypatch.setattr(
+        vector_db,
+        "_search_guide_chunks_by_local_embeddings",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("不应再回退到本地 JSON 向量索引")
+        ),
+    )
+    monkeypatch.setattr(
+        vector_db,
+        "_search_guide_chunks_by_keywords",
+        lambda query, top_k=3, destination=None: [
+            {"title": "关键词命中", "text": "关键词兜底成功。", "source": "local.md"}
+        ],
+    )
+
+    results = vector_db.search_guide_chunks("大理 古城", top_k=1)
+
+    assert results == [{"title": "关键词命中", "text": "关键词兜底成功。", "source": "local.md"}]
+    assert not (tmp_path / "guide_embeddings.json").exists()
 
 
 def test_search_guide_chunks_falls_back_when_chroma_count_fails(monkeypatch) -> None:

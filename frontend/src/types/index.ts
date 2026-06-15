@@ -31,6 +31,11 @@ export interface SpotItem {
   latitude?: number | null;
   longitude?: number | null;
   poi_id?: string | null;
+  map_rating?: number | null;
+  map_average_cost?: number | null;
+  map_tags?: string[];
+  map_tel?: string | null;
+  map_distance_meters?: number | null;
 }
 
 export interface MealItem {
@@ -38,6 +43,16 @@ export interface MealItem {
   meal_type: string;
   estimated_cost?: number;
   notes?: string | null;
+  image_url?: string | null;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  poi_id?: string | null;
+  map_rating?: number | null;
+  map_average_cost?: number | null;
+  map_tags?: string[];
+  map_tel?: string | null;
+  map_distance_meters?: number | null;
 }
 
 export interface HotelItem {
@@ -48,6 +63,13 @@ export interface HotelItem {
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  image_url?: string | null;
+  poi_id?: string | null;
+  map_rating?: number | null;
+  map_average_cost?: number | null;
+  map_tags?: string[];
+  map_tel?: string | null;
+  map_distance_meters?: number | null;
 }
 
 export interface TransportItem {
