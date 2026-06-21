@@ -3,6 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 interface TripMapPoint {
   key: string;
+  kind?: "spot" | "hotel" | "meal";
+  label?: string;
+  recommended?: boolean;
   dayIndex: number;
   date: string;
   theme: string;
@@ -13,10 +16,16 @@ interface TripMapPoint {
   poiId: string | null | undefined;
   imageUrl?: string | null;
   description: string;
+  rating?: number | null;
+  averageCost?: number | null;
+  estimatedCost?: number | null;
+  tags?: string[];
+  distanceMeters?: number | null;
 }
 
 const props = defineProps<{
   points: TripMapPoint[];
+  large?: boolean;
 }>();
 
 declare global {
@@ -30,6 +39,7 @@ const mapInstance = ref<any>(null);
 const markerList = ref<any[]>([]);
 const routeLine = ref<any>(null);
 const loadError = ref("");
+const activeKind = ref<"spot" | "hotel" | "meal">("spot");
 
 const amapKey = import.meta.env.VITE_AMAP_JS_KEY;
 
@@ -38,6 +48,88 @@ const validPoints = computed(() =>
     (point) => point.longitude != null && point.latitude != null
   )
 );
+
+const visiblePoints = computed(() =>
+  validPoints.value.filter((point) => (point.kind || "spot") === activeKind.value)
+);
+
+const filterOptions = computed(() => [
+  {
+    key: "spot" as const,
+    label: "景点",
+    count: validPoints.value.filter((point) => (point.kind || "spot") === "spot").length,
+  },
+  {
+    key: "hotel" as const,
+    label: "酒店",
+    count: validPoints.value.filter((point) => point.kind === "hotel").length,
+  },
+  {
+    key: "meal" as const,
+    label: "餐饮",
+    count: validPoints.value.filter((point) => point.kind === "meal").length,
+  },
+]);
+
+function escapeHtml(value: string | number | null | undefined): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatRating(value?: number | null): string {
+  return value != null ? `${value.toFixed(1)} 分` : "";
+}
+
+function formatCost(value?: number | null, fallback?: number | null): string {
+  if (value != null) {
+    return `¥${value.toFixed(0)} 参考`;
+  }
+  if (fallback != null) {
+    return `¥${fallback.toFixed(0)} 预算`;
+  }
+  return "";
+}
+
+function formatDistance(value?: number | null): string {
+  if (value == null) {
+    return "";
+  }
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} km` : `${value.toFixed(0)} m`;
+}
+
+function getPointVisual(point: TripMapPoint) {
+  if (point.kind === "hotel") {
+    return {
+      icon: "🏨",
+      badge: "推荐酒店",
+      color: "#059669",
+      gradient: "linear-gradient(135deg,#10b981,#059669)",
+      soft: "rgba(16,185,129,0.12)",
+    };
+  }
+
+  if (point.kind === "meal") {
+    return {
+      icon: "🍽",
+      badge: point.label || "推荐餐饮",
+      color: "#d97706",
+      gradient: "linear-gradient(135deg,#f59e0b,#d97706)",
+      soft: "rgba(245,158,11,0.12)",
+    };
+  }
+
+  return {
+    icon: "🚩",
+    badge: `D${point.dayIndex}`,
+    color: "#5b5bd6",
+    gradient: "linear-gradient(135deg,#6d82de,#8a67cf)",
+    soft: "rgba(109,130,222,0.12)",
+  };
+}
 
 function clearOverlays() {
   if (!mapInstance.value) {
@@ -62,14 +154,36 @@ function renderMarkers() {
 
   clearOverlays();
 
-  const sorted = [...validPoints.value].sort((a, b) => a.dayIndex - b.dayIndex);
+  const kindOrder = { spot: 0, hotel: 1, meal: 2 };
+  const sorted = [...visiblePoints.value].sort((a, b) => {
+    const dayDiff = a.dayIndex - b.dayIndex;
+    if (dayDiff !== 0) {
+      return dayDiff;
+    }
+    return (kindOrder[a.kind || "spot"] ?? 0) - (kindOrder[b.kind || "spot"] ?? 0);
+  });
   const bounds: [number, number][] = [];
   const routePath: [number, number][] = [];
 
   sorted.forEach((point) => {
     const position: [number, number] = [point.longitude as number, point.latitude as number];
+    const visual = getPointVisual(point);
+    const isRecommendedPoi = point.recommended && point.kind !== "spot";
+    const safeName = escapeHtml(point.name);
+    const safeAddress = escapeHtml(point.address);
+    const safeTheme = escapeHtml(point.theme);
+    const safeLabel = escapeHtml(point.label || visual.badge);
+    const safeDescription = escapeHtml(point.description);
+    const metaItems = [
+      formatRating(point.rating),
+      formatCost(point.averageCost, point.estimatedCost),
+      formatDistance(point.distanceMeters),
+      ...(point.tags || []).slice(0, 2),
+    ].filter(Boolean);
     bounds.push(position);
-    routePath.push(position);
+    if ((point.kind || "spot") === "spot") {
+      routePath.push(position);
+    }
 
     const marker = new window.AMap.Marker({
       position,
@@ -77,68 +191,91 @@ function renderMarkers() {
       offset: new window.AMap.Pixel(-12, -28),
       content: `
         <div style="position:relative;display:flex;flex-direction:column;align-items:center;">
-          <div style="font-size:22px;line-height:1;">🚩</div>
+          <div style="
+            display:grid;
+            place-items:center;
+            width:${isRecommendedPoi ? "34px" : "28px"};
+            height:${isRecommendedPoi ? "34px" : "28px"};
+            border:${isRecommendedPoi ? "3px solid #fff" : "2px solid #fff"};
+            border-radius:999px;
+            background:${visual.gradient};
+            box-shadow:${isRecommendedPoi ? "0 8px 18px rgba(15,23,42,0.26)" : "0 4px 10px rgba(15,23,42,0.18)"};
+            font-size:${isRecommendedPoi ? "19px" : "16px"};
+            line-height:1;
+          ">${visual.icon}</div>
           <div style="
             margin-top:2px;
-            padding:2px 7px;
+            padding:${isRecommendedPoi ? "3px 9px" : "2px 7px"};
             border-radius:999px;
-            background:linear-gradient(135deg,#6d82de,#8a67cf);
+            background:${visual.gradient};
             color:#fff;
             font-size:11px;
-            font-weight:700;
+            font-weight:800;
             white-space:nowrap;
             box-shadow:0 2px 6px rgba(0,0,0,0.18);
-          ">D${point.dayIndex}</div>
+          ">${escapeHtml(visual.badge)}</div>
         </div>
       `,
+      zIndex: isRecommendedPoi ? 180 : 120,
     });
 
     const imageHtml = point.imageUrl
-      ? `<img src="${point.imageUrl}" alt="${point.name}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" />`
-      : `<div style="width:100%;height:100%;display:grid;place-items:center;border-radius:8px;background:linear-gradient(135deg,#e8edff,#f0e8ff);color:#8b8fad;font-size:10px;">暂无图片</div>`;
+      ? `<img src="${escapeHtml(point.imageUrl)}" alt="${safeName}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" />`
+      : `<div style="width:100%;height:100%;display:grid;place-items:center;border-radius:8px;background:${visual.soft};color:${visual.color};font-size:11px;font-weight:800;">${safeLabel}</div>`;
 
     const bubble = new window.AMap.Marker({
       position,
-      offset: new window.AMap.Pixel(14, -46),
+      offset: new window.AMap.Pixel(isRecommendedPoi ? 18 : 14, isRecommendedPoi ? -58 : -46),
       content: `
         <div style="
           position:relative;
-          width:110px;
+          width:${isRecommendedPoi ? "138px" : "110px"};
           background:#fff;
-          border-radius:10px;
-          box-shadow:0 3px 12px rgba(0,0,0,0.12);
+          border:${isRecommendedPoi ? `2px solid ${visual.color}` : "1px solid rgba(15,23,42,0.06)"};
+          border-radius:12px;
+          box-shadow:${isRecommendedPoi ? "0 10px 26px rgba(15,23,42,0.2)" : "0 3px 12px rgba(0,0,0,0.12)"};
           overflow:hidden;
           font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
         ">
-          <div style="width:110px;height:72px;overflow:hidden;background:#eef3ff;">
+          <div style="width:100%;height:${isRecommendedPoi ? "84px" : "72px"};overflow:hidden;background:#eef3ff;">
             ${imageHtml}
           </div>
-          <div style="padding:5px 8px 6px;">
-            <div style="font-size:11px;font-weight:600;color:#2d3748;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${point.name}</div>
+          <div style="padding:${isRecommendedPoi ? "7px 9px 8px" : "5px 8px 6px"};">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
+              <span style="padding:2px 6px;border-radius:999px;background:${visual.soft};color:${visual.color};font-size:10px;font-weight:900;white-space:nowrap;">${safeLabel}</span>
+              <span style="color:#8a94a6;font-size:10px;white-space:nowrap;">D${point.dayIndex}</span>
+            </div>
+            <div style="font-size:${isRecommendedPoi ? "13px" : "11px"};font-weight:800;color:#2d3748;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safeName}</div>
+            ${
+              metaItems.length
+                ? `<div style="margin-top:4px;color:#667085;font-size:10px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(metaItems.join(" · "))}</div>`
+                : ""
+            }
           </div>
           <div style="
             position:absolute;
             left:-5px;
-            top:30px;
+            top:${isRecommendedPoi ? "42px" : "30px"};
             width:0;
             height:0;
             border-top:5px solid transparent;
             border-bottom:5px solid transparent;
-            border-right:5px solid #fff;
+            border-right:5px solid ${isRecommendedPoi ? visual.color : "#fff"};
             filter:drop-shadow(-2px 0 2px rgba(0,0,0,0.06));
           "></div>
         </div>
       `,
-      zIndex: 100,
+      zIndex: isRecommendedPoi ? 170 : 100,
     });
 
     const infoWindow = new window.AMap.InfoWindow({
       offset: new window.AMap.Pixel(0, -32),
       content: `
         <div style="max-width:240px;padding:4px 2px;line-height:1.7;">
-          <strong>${point.name}</strong><br/>
-          <span>第${point.dayIndex}天 · ${point.theme}</span><br/>
-          <span>${point.address}</span>
+          <strong>${safeName}</strong><br/>
+          <span>${safeLabel} · 第${point.dayIndex}天 · ${safeTheme}</span><br/>
+          <span>${safeAddress}</span>
+          ${safeDescription ? `<br/><span>${safeDescription}</span>` : ""}
         </div>
       `,
     });
@@ -247,7 +384,7 @@ onMounted(() => {
   void initMap();
 });
 
-watch(validPoints, () => {
+watch([visiblePoints, activeKind], () => {
   if (mapInstance.value) {
     renderMarkers();
   }
@@ -263,7 +400,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="trip-map">
+  <div class="trip-map" :class="{ 'trip-map--large': large }">
     <div v-if="loadError" class="trip-map__placeholder">
       <strong>地图暂未启用</strong>
       <span>{{ loadError }}</span>
@@ -272,7 +409,26 @@ onBeforeUnmount(() => {
       <strong>暂无可展示点位</strong>
       <span>当前 itinerary 里还没有可用的经纬度数据。</span>
     </div>
-    <div v-else ref="mapContainer" class="trip-map__canvas"></div>
+    <div v-else class="trip-map__stage">
+      <div class="trip-map__filters" aria-label="地图点位筛选">
+        <button
+          v-for="option in filterOptions"
+          :key="option.key"
+          class="trip-map__filter"
+          :class="{ 'trip-map__filter--active': activeKind === option.key }"
+          type="button"
+          :disabled="option.count === 0"
+          @click="activeKind = option.key"
+        >
+          <span>{{ option.label }}</span>
+          <strong>{{ option.count }}</strong>
+        </button>
+      </div>
+      <div v-if="visiblePoints.length === 0" class="trip-map__empty-filter">
+        当前分类暂无可展示点位
+      </div>
+      <div ref="mapContainer" class="trip-map__canvas"></div>
+    </div>
   </div>
 </template>
 
@@ -282,12 +438,97 @@ onBeforeUnmount(() => {
   min-height: 280px;
 }
 
+.trip-map--large {
+  height: min(72vh, 760px);
+  min-height: 520px;
+}
+
+.trip-map__stage,
 .trip-map__canvas,
 .trip-map__placeholder {
   width: 100%;
   height: 100%;
   min-height: 280px;
   border-radius: 20px;
+}
+
+.trip-map__stage {
+  position: relative;
+  overflow: hidden;
+}
+
+.trip-map__canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.trip-map__filters {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - 28px);
+}
+
+.trip-map__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(98, 116, 164, 0.16);
+  border-radius: 999px;
+  padding: 8px 11px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  color: #475467;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.trip-map__filter strong {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(98, 116, 164, 0.12);
+  color: #667085;
+  font-size: 11px;
+}
+
+.trip-map__filter--active {
+  border-color: rgba(91, 91, 214, 0.18);
+  background: linear-gradient(135deg, #6d82de, #8a67cf);
+  color: #ffffff;
+}
+
+.trip-map__filter--active strong {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.trip-map__filter:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.trip-map__empty-filter {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 15;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+  color: #667085;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .trip-map__placeholder {
@@ -313,5 +554,12 @@ onBeforeUnmount(() => {
   max-width: 360px;
   color: #7b8494;
   line-height: 1.7;
+}
+
+@media (max-width: 720px) {
+  .trip-map--large {
+    height: 68vh;
+    min-height: 420px;
+  }
 }
 </style>

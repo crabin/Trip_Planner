@@ -59,6 +59,20 @@ def test_generate_trip_itinerary_returns_itinerary_object() -> None:
     assert itinerary.budget_breakdown.total >= 0
 
 
+def test_generate_trip_itinerary_budget_total_matches_breakdown() -> None:
+    """测试预算总价等于页面展示的所有预算项之和。"""
+    itinerary = generate_trip_itinerary(build_trip_request())
+    budget = itinerary.budget_breakdown
+
+    displayed_sum = round(
+        budget.transport + budget.hotel + budget.meals + budget.tickets + budget.other,
+        2,
+    )
+
+    assert budget.total == displayed_sum
+    assert itinerary.estimated_budget == displayed_sum
+
+
 def test_generate_trip_itinerary_builds_day_plans_by_date_range() -> None:
     """测试 service 会根据日期范围生成对应天数的 DayPlan。"""
     request = build_trip_request()
@@ -288,6 +302,108 @@ def test_generate_trip_itinerary_uses_free_chengdu_ticket_and_filters_tip(
 
     assert [day.spots[0].estimated_cost for day in itinerary.days] == [0.0, 55.0, 50.0]
     assert all("洱海" not in tip for tip in itinerary.tips)
+
+
+def test_generate_trip_itinerary_leaves_changsha_public_spots_without_source_unset(
+    monkeypatch,
+) -> None:
+    """测试没有本地门票参考时，长沙公共点也不靠名称猜测免费。"""
+    request = build_trip_request().model_copy(update={"destination": "长沙"})
+    draft = SimpleNamespace(
+        summary="长沙城市漫游",
+        tips=["橘子洲、五一广场和太平老街适合慢逛。"],
+        days=[
+            SimpleNamespace(
+                day_index=1,
+                theme="橘子洲江景",
+                spot_name="橘子洲",
+                spot_description="开放式江心洲，适合散步和看湘江风光。",
+                meal_name="湘菜馆",
+                meal_notes="少辣。",
+                daily_note="下午再出发。",
+            ),
+            SimpleNamespace(
+                day_index=2,
+                theme="五一广场商圈",
+                spot_name="五一广场",
+                spot_description="长沙核心商圈，适合逛街和吃小吃。",
+                meal_name="米粉",
+                meal_notes="少辣。",
+                daily_note="避开晚高峰。",
+            ),
+            SimpleNamespace(
+                day_index=3,
+                theme="太平老街收尾",
+                spot_name="太平老街",
+                spot_description="开放街区，适合步行打卡。",
+                meal_name="糖油粑粑",
+                meal_notes="少辣。",
+                daily_note="轻松收尾。",
+            ),
+        ],
+    )
+    monkeypatch.setattr(trip_service, "collect_trip_context", lambda **kwargs: [])
+    monkeypatch.setattr(
+        trip_service,
+        "generate_planner_draft",
+        lambda request, rag_contexts, day_count: draft,
+    )
+
+    itinerary = generate_trip_itinerary(request)
+
+    assert [day.spots[0].estimated_cost for day in itinerary.days] == [None, None, None]
+    assert itinerary.budget_breakdown.tickets == 0.0
+
+
+def test_generate_trip_itinerary_leaves_unknown_ticket_price_unset(
+    monkeypatch,
+) -> None:
+    """测试没有可靠门票来源时不再编造价格，交给前端展示待查询。"""
+    request = build_trip_request().model_copy(update={"destination": "长沙"})
+    draft = SimpleNamespace(
+        summary="长沙一日游",
+        tips=["出发前确认景区开放信息。"],
+        days=[
+            SimpleNamespace(
+                day_index=1,
+                theme="未知收费景点",
+                spot_name="长沙推荐景区",
+                spot_description="没有门票来源的景区安排。",
+                meal_name="湘菜馆",
+                meal_notes="少辣。",
+                daily_note="轻松游览。",
+            ),
+            SimpleNamespace(
+                day_index=2,
+                theme="未知收费景点",
+                spot_name="长沙山水景区",
+                spot_description="没有门票来源的景区安排。",
+                meal_name="米粉",
+                meal_notes="少辣。",
+                daily_note="轻松游览。",
+            ),
+            SimpleNamespace(
+                day_index=3,
+                theme="未知收费景点",
+                spot_name="长沙文化景区",
+                spot_description="没有门票来源的景区安排。",
+                meal_name="糖油粑粑",
+                meal_notes="少辣。",
+                daily_note="轻松游览。",
+            ),
+        ],
+    )
+    monkeypatch.setattr(trip_service, "collect_trip_context", lambda **kwargs: [])
+    monkeypatch.setattr(
+        trip_service,
+        "generate_planner_draft",
+        lambda request, rag_contexts, day_count: draft,
+    )
+
+    itinerary = generate_trip_itinerary(request)
+
+    assert [day.spots[0].estimated_cost for day in itinerary.days] == [None, None, None]
+    assert itinerary.budget_breakdown.tickets == 0.0
 
 
 def test_generate_trip_itinerary_calls_map_enrichment_for_spot_coordinates(

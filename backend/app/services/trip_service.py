@@ -9,6 +9,7 @@ from app.agents.trip_planner_agent import (
     generate_day_edit_draft,
     generate_planner_draft,
 )
+from app.agents.tools.arithmetic_tool import calculate_budget_breakdown_with_tools
 from app.config import ENABLE_AMAP_ENRICHMENT
 from app.models.schemas import (
     BudgetBreakdown,
@@ -197,7 +198,7 @@ def _resolve_ticket_cost(
     spot_name: str,
     description: str | None,
     ticket_references: dict[str, TicketReference],
-) -> tuple[float, str | None]:
+) -> tuple[float | None, str | None]:
     reference = _find_ticket_reference(spot_name, ticket_references)
     if reference is not None:
         return reference.cost, reference.note
@@ -237,18 +238,9 @@ def _prorate_amounts(total: float, weights: list[float]) -> list[float]:
     return [round(value / 100, 2) for value in base_cents]
 
 
-def _estimate_ticket_cost(spot_name: str, description: str | None = None) -> float:
-    """根据景点关键词估算门票，更接近真实行程而不是固定数值。"""
-    text = f"{spot_name} {description or ''}"
-    bucket = _stable_bucket(text, 4)
-
-    if any(keyword in text for keyword in ("古城", "古镇", "公园", "廊道", "村", "湿地", "街区")):
-        return [0.0, 20.0, 30.0, 40.0][bucket]
-    if any(keyword in text for keyword in ("寺", "三塔", "博物馆", "遗址", "山庄")):
-        return round(60.0 + (bucket * 18.0), 2)
-    if any(keyword in text for keyword in ("索道", "缆车", "游船", "演出", "雪山")):
-        return round(120.0 + (bucket * 28.0), 2)
-    return round(35.0 + (bucket * 12.0), 2)
+def _estimate_ticket_cost(spot_name: str, description: str | None = None) -> float | None:
+    """缺少可靠门票来源时不估价，交给前端展示待查询。"""
+    return None
 
 
 def _build_hotel_weights(day_count: int, start_date: DateType) -> list[float]:
@@ -325,26 +317,18 @@ def _refresh_budget_breakdown(itinerary: Itinerary, request_budget: float | None
         2,
     )
     ticket_total = round(
-        sum(item.estimated_cost for day in itinerary.days for item in day.spots),
+        sum((item.estimated_cost or 0.0) for day in itinerary.days for item in day.spots),
         2,
     )
 
-    subtotal = transport_total + hotel_total + meal_total + ticket_total
-    if request_budget is not None:
-        other_total = round(max(0.0, min(request_budget * 0.12, request_budget - subtotal)), 2)
-    else:
-        other_total = round(max(subtotal * 0.06, 0.0), 2)
-
-    total = round(subtotal + other_total, 2)
-    itinerary.budget_breakdown = BudgetBreakdown(
+    itinerary.budget_breakdown = calculate_budget_breakdown_with_tools(
         transport=transport_total,
         hotel=hotel_total,
         meals=meal_total,
         tickets=ticket_total,
-        other=other_total,
-        total=total,
+        request_budget=request_budget,
     )
-    itinerary.estimated_budget = total
+    itinerary.estimated_budget = itinerary.budget_breakdown.total
     return itinerary
 
 
@@ -379,7 +363,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
     fallback_spot_names = _build_demo_spot_names(request.destination, rag_contexts, day_count)
 
     raw_days: list[dict[str, object]] = []
-    ticket_costs: list[float] = []
+    ticket_costs: list[float | None] = []
     for index in range(day_count):
         day_number = index + 1
         current_date = request.start_date + timedelta(days=index)
@@ -427,7 +411,7 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         )
         ticket_costs.append(ticket_cost)
 
-    ticket_total = round(sum(ticket_costs), 2)
+    ticket_total = round(sum(cost or 0.0 for cost in ticket_costs), 2)
     target_total = request.budget * (
         0.78 if request.pace == "轻松" else 0.92 if request.pace == "紧凑" else 0.85
     )
@@ -481,7 +465,11 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
                         str(raw_day["spot_description"]),
                         str(raw_day["ticket_note"]) if raw_day["ticket_note"] else None,
                     ),
-                    estimated_cost=float(raw_day["ticket_cost"]),
+                    estimated_cost=(
+                        float(raw_day["ticket_cost"])
+                        if raw_day["ticket_cost"] is not None
+                        else None
+                    ),
                     location=request.destination,
                 )
             ],

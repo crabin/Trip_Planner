@@ -63,3 +63,14 @@ AMAP_BASE_URL = os.getenv("AMAP_BASE_URL", "https://restapi.amap.com/v3")
 AMAP_DEFAULT_CITY = os.getenv("AMAP_DEFAULT_CITY", "")
 AMAP_TIMEOUT_SECONDS = int(os.getenv("AMAP_TIMEOUT_SECONDS", "20"))
 ENABLE_AMAP_ENRICHMENT = os.getenv("ENABLE_AMAP_ENRICHMENT", "false").lower() == "true"
+
+
+# 美团 / 大众点评等本地生活配置
+ENABLE_LOCAL_LIFE_ENRICHMENT = (
+    os.getenv("ENABLE_LOCAL_LIFE_ENRICHMENT", "false").lower() == "true"
+)
+LOCAL_LIFE_TIMEOUT_SECONDS = int(os.getenv("LOCAL_LIFE_TIMEOUT_SECONDS", "20"))
+MEITUAN_API_BASE_URL = os.getenv("MEITUAN_API_BASE_URL", "")
+MEITUAN_API_KEY = os.getenv("MEITUAN_API_KEY", "")
+DIANPING_API_BASE_URL = os.getenv("DIANPING_API_BASE_URL", "")
+DIANPING_API_KEY = os.getenv("DIANPING_API_KEY", "")

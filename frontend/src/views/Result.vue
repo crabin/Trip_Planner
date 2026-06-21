@@ -31,6 +31,7 @@ const editInstruction = ref("这一天节奏更轻松一点，减少固定安排
 const weatherLoading = ref(false);
 const weatherError = ref("");
 const weather = ref<WeatherForecastResponse | null>(null);
+const mapExpanded = ref(false);
 
 function formatShortDate(dateText?: string | null): string {
   if (!dateText) {
@@ -70,7 +71,10 @@ function formatReferenceCost(value?: number | null, fallback?: number | null): s
   if (fallback != null && fallback > 0) {
     return `¥${fallback.toFixed(0)} 预算`;
   }
-  return "价格待补充";
+  if (fallback === 0) {
+    return "¥0 预算";
+  }
+  return "价格待查询";
 }
 
 function formatDistance(value?: number | null): string {
@@ -97,15 +101,27 @@ function hasPoiInfo(item?: MealItem | HotelItem | SpotItem | null): boolean {
       item.map_rating != null ||
       item.map_average_cost != null ||
       item.map_tags?.length ||
+      item.map_business_area ||
+      item.map_open_time_today ||
+      item.map_type ||
       item.address ||
       item.image_url
   );
 }
 
 function buildRecommendationReason(item: MealItem | HotelItem, kind: "meal" | "hotel"): string {
+  if (item.recommendation_reason) {
+    return item.recommendation_reason;
+  }
   const reasons: string[] = [];
+  if (item.ranking_label) {
+    reasons.push(item.ranking_label);
+  }
   if (item.map_rating != null) {
     reasons.push(`高德评分 ${item.map_rating.toFixed(1)}`);
+  }
+  if (item.review_count != null) {
+    reasons.push(`${item.review_count} 条评价`);
   }
   const distance = formatDistance(item.map_distance_meters);
   if (distance) {
@@ -113,6 +129,12 @@ function buildRecommendationReason(item: MealItem | HotelItem, kind: "meal" | "h
   }
   if (item.map_tags?.length) {
     reasons.push(buildTagText(item.map_tags));
+  }
+  if (item.map_business_area) {
+    reasons.push(`位于${item.map_business_area}商圈`);
+  }
+  if (item.map_open_time_today) {
+    reasons.push(`今日营业 ${item.map_open_time_today}`);
   }
   if (!reasons.length && item.address) {
     reasons.push("已匹配真实地图地址");
@@ -127,6 +149,25 @@ function buildContactText(item: MealItem | HotelItem | SpotItem): string {
   return [item.map_tel, item.address].filter(Boolean).join(" · ");
 }
 
+function buildMapDetailText(item: MealItem | HotelItem | SpotItem): string {
+  return [
+    item.map_business_area ? `${item.map_business_area}商圈` : "",
+    item.map_open_time_today ? `今日 ${item.map_open_time_today}` : "",
+    item.map_type ? item.map_type.split(";").slice(-1)[0] : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function buildSourceText(item: MealItem | HotelItem): string {
+  const sourceMap: Record<string, string> = {
+    amap: "高德",
+    meituan: "美团",
+    dianping: "大众点评",
+  };
+  return item.data_source ? sourceMap[item.data_source] || item.data_source : "";
+}
+
 const budgetItems = computed(() => {
   if (!props.itinerary) {
     return [];
@@ -138,6 +179,7 @@ const budgetItems = computed(() => {
     { label: "酒店住宿", value: `¥${budget.hotel.toFixed(0)}` },
     { label: "餐饮费用", value: `¥${budget.meals.toFixed(0)}` },
     { label: "交通费用", value: `¥${budget.transport.toFixed(0)}` },
+    { label: "其他费用", value: `¥${budget.other.toFixed(0)}` },
   ];
 });
 
@@ -171,9 +213,11 @@ const mapPoints = computed(() => {
     return [];
   }
 
-  return props.itinerary.days.flatMap((day) =>
-    day.spots.map((spot) => ({
-      key: `${day.day_index}-${spot.name}`,
+  return props.itinerary.days.flatMap((day) => {
+    const spotPoints = day.spots.map((spot) => ({
+      key: `spot-${day.day_index}-${spot.name}`,
+      kind: "spot" as const,
+      label: "景点",
       dayIndex: day.day_index,
       date: day.date || "待定",
       theme: day.theme || "未命名主题",
@@ -186,12 +230,79 @@ const mapPoints = computed(() => {
       description: spot.description || "暂无说明",
       rating: spot.map_rating,
       averageCost: spot.map_average_cost,
+      estimatedCost: spot.estimated_cost,
       tags: spot.map_tags || [],
       distanceMeters: spot.map_distance_meters,
       tel: spot.map_tel,
-    }))
-  );
+      businessArea: spot.map_business_area,
+      openTimeToday: spot.map_open_time_today,
+      type: spot.map_type,
+      recommended: false,
+    }));
+
+    const hotelCandidates = day.hotel_candidates || [];
+    const hotelsForMap = hotelCandidates.length ? hotelCandidates : day.hotel ? [day.hotel] : [];
+    const hotelPoints = hotelsForMap.map((hotel, index) => ({
+      key: `hotel-${day.day_index}-${index}-${hotel.name}`,
+      kind: "hotel" as const,
+      label: hotel.is_recommended === false ? "候选酒店" : "推荐酒店",
+      dayIndex: day.day_index,
+      date: day.date || "待定",
+      theme: day.theme || "未命名主题",
+      name: hotel.name,
+      address: hotel.address || hotel.location || "待补充",
+      latitude: hotel.latitude,
+      longitude: hotel.longitude,
+      poiId: hotel.poi_id,
+      imageUrl: hotel.image_url,
+      description: hotel.recommendation_reason || (hotel.level ? `${hotel.level}住宿` : "住宿候选"),
+      rating: hotel.map_rating,
+      averageCost: hotel.map_average_cost,
+      estimatedCost: hotel.estimated_cost,
+      tags: hotel.map_tags || [],
+      distanceMeters: hotel.map_distance_meters,
+      tel: hotel.map_tel,
+      businessArea: hotel.map_business_area,
+      openTimeToday: hotel.map_open_time_today,
+      type: hotel.map_type,
+      recommended: hotel.is_recommended !== false,
+    }));
+
+    const mealCandidates = day.meal_candidates || [];
+    const mealsForMap = mealCandidates.length ? mealCandidates : day.meals;
+    const mealPoints = mealsForMap.map((meal, index) => ({
+      key: `meal-${day.day_index}-${index}-${meal.meal_type}-${meal.name}`,
+      kind: "meal" as const,
+      label: `${meal.is_recommended === false ? "候选" : "推荐"}${meal.meal_type || "餐饮"}`,
+      dayIndex: day.day_index,
+      date: day.date || "待定",
+      theme: day.theme || "未命名主题",
+      name: meal.name,
+      address: meal.address || "待补充",
+      latitude: meal.latitude,
+      longitude: meal.longitude,
+      poiId: meal.poi_id,
+      imageUrl: meal.image_url,
+      description: meal.notes || "当日推荐餐饮",
+      rating: meal.map_rating,
+      averageCost: meal.map_average_cost,
+      estimatedCost: meal.estimated_cost,
+      tags: meal.map_tags || [],
+      distanceMeters: meal.map_distance_meters,
+      tel: meal.map_tel,
+      businessArea: meal.map_business_area,
+      openTimeToday: meal.map_open_time_today,
+      type: meal.map_type,
+      recommended: meal.is_recommended !== false,
+    }));
+
+    return [...spotPoints, ...hotelPoints, ...mealPoints];
+  });
 });
+
+const scenicMapPoints = computed(() =>
+  mapPoints.value.filter((point) => point.kind === "spot")
+);
 
 const hotelRecommendationDays = computed(() => {
   if (!props.itinerary) {
@@ -214,7 +325,7 @@ const mealRecommendationDays = computed(() => {
   return props.itinerary.days
     .map((day) => ({
       ...day,
-      visibleMeals: day.meals.filter((meal) => hasPoiInfo(meal) || meal.name),
+      visibleMeals: day.meals.filter((meal) => (meal.is_recommended ?? true) && (hasPoiInfo(meal) || meal.name)),
     }))
     .filter((day) => day.visibleMeals.length);
 });
@@ -480,46 +591,67 @@ async function handleEdit() {
 
       <section class="result-card">
         <div class="result-card__title">预算明细</div>
-        <div class="budget-grid">
-          <div v-for="item in budgetItems" :key="item.label" class="budget-box">
-            <div class="budget-box__label">{{ item.label }}</div>
-            <div class="budget-box__value">{{ item.value }}</div>
+        <div class="budget-summary">
+          <div class="budget-grid">
+            <div v-for="item in budgetItems" :key="item.label" class="budget-box">
+              <div class="budget-box__label">{{ item.label }}</div>
+              <div class="budget-box__value">{{ item.value }}</div>
+            </div>
+          </div>
+          <div class="budget-total">
+            <span>总计</span>
+            <strong>¥{{ itinerary.estimated_budget.toFixed(0) }}</strong>
           </div>
         </div>
-        <div class="budget-total">
-          <span>预估总费用</span>
-          <strong>¥{{ itinerary.estimated_budget.toFixed(0) }}</strong>
+
+        <div class="compact-weather">
+          <div class="compact-weather__header">
+            <span>天气信息</span>
+            <small>{{ itinerary.destination }}</small>
+          </div>
+          <div v-if="weatherLoading" class="compact-weather__state">加载中...</div>
+          <div v-else-if="weatherError" class="compact-weather__state">{{ weatherError }}</div>
+          <div v-else-if="weather" class="compact-weather__list">
+            <article
+              v-for="day in weather.days"
+              :key="`${day.date}-${day.week}`"
+              class="compact-weather__item"
+            >
+              <span>{{ formatWeatherDate(day.date, day.week) }}</span>
+              <strong>{{ day.day_temp || "-" }}°/{{ day.night_temp || "-" }}°</strong>
+              <em>{{ day.day_weather || day.night_weather || "未知" }}</em>
+            </article>
+          </div>
+          <div v-else class="compact-weather__state">暂无天气信息。</div>
         </div>
       </section>
 
       <section class="result-card result-card--map">
-        <div class="result-card__title">景点地图</div>
+        <div class="map-card-header">
+          <div class="result-card__title">景点地图</div>
+          <button class="map-expand-button" type="button" @click="mapExpanded = true">
+            放大查看
+          </button>
+        </div>
         <AmapTripMap :points="mapPoints" />
       </section>
 
-      <section class="result-card result-card--weather">
-        <div class="result-card__title">天气信息</div>
-
-        <div v-if="weatherLoading" class="weather-state">正在加载天气信息...</div>
-        <div v-else-if="weatherError" class="weather-state">{{ weatherError }}</div>
-        <div v-else-if="weather" class="weather-grid">
-          <article
-            v-for="day in weather.days"
-            :key="`${day.date}-${day.week}`"
-            class="weather-card"
-          >
-            <div class="weather-card__date">
-              {{ formatWeatherDate(day.date, day.week) }}
+      <Teleport to="body">
+        <div v-if="mapExpanded" class="map-modal" @click.self="mapExpanded = false">
+          <section class="map-modal__panel" role="dialog" aria-modal="true" aria-label="景点地图放大查看">
+            <div class="map-modal__header">
+              <div>
+                <span>景点地图</span>
+                <strong>{{ itinerary.destination }} · {{ mapPoints.length }} 个点位</strong>
+              </div>
+              <button class="map-modal__close" type="button" aria-label="关闭地图窗口" @click="mapExpanded = false">
+                关闭
+              </button>
             </div>
-            <div class="weather-card__temp">
-              {{ day.day_temp || "-" }}° / {{ day.night_temp || "-" }}°
-            </div>
-            <div class="weather-card__desc">白天：{{ day.day_weather || "未知" }}</div>
-            <div class="weather-card__desc">夜间：{{ day.night_weather || "未知" }}</div>
-          </article>
+            <AmapTripMap :points="mapPoints" large />
+          </section>
         </div>
-        <div v-else class="weather-state">暂无天气信息。</div>
-      </section>
+      </Teleport>
 
       <section class="result-card result-card--full">
         <div class="result-card__title">智能调整行程</div>
@@ -627,12 +759,20 @@ async function handleEdit() {
                   <div class="recommendation-meta">
                     <span>{{ formatMapRating(day.hotel.map_rating) }}</span>
                     <span>{{ formatReferenceCost(day.hotel.map_average_cost, day.hotel.estimated_cost) }}</span>
+                    <span v-if="buildSourceText(day.hotel)">{{ buildSourceText(day.hotel) }}</span>
+                    <span v-if="day.hotel.review_count != null">{{ day.hotel.review_count }} 条评价</span>
                     <span v-if="formatDistance(day.hotel.map_distance_meters)">
                       {{ formatDistance(day.hotel.map_distance_meters) }}
                     </span>
                   </div>
+                  <div v-if="day.hotel.ranking_label" class="recommendation-tags">
+                    {{ day.hotel.ranking_label }}
+                  </div>
                   <div v-if="buildTagText(day.hotel.map_tags)" class="recommendation-tags">
                     {{ buildTagText(day.hotel.map_tags) }}
+                  </div>
+                  <div v-if="buildMapDetailText(day.hotel)" class="recommendation-map-detail">
+                    {{ buildMapDetailText(day.hotel) }}
                   </div>
                   <div v-if="buildContactText(day.hotel)" class="recommendation-contact">
                     {{ buildContactText(day.hotel) }}
@@ -683,12 +823,20 @@ async function handleEdit() {
                   <div class="recommendation-meta">
                     <span>{{ formatMapRating(meal.map_rating) }}</span>
                     <span>{{ formatReferenceCost(meal.map_average_cost, meal.estimated_cost) }}</span>
+                    <span v-if="buildSourceText(meal)">{{ buildSourceText(meal) }}</span>
+                    <span v-if="meal.review_count != null">{{ meal.review_count }} 条评价</span>
                     <span v-if="formatDistance(meal.map_distance_meters)">
                       {{ formatDistance(meal.map_distance_meters) }}
                     </span>
                   </div>
+                  <div v-if="meal.ranking_label" class="recommendation-tags">
+                    {{ meal.ranking_label }}
+                  </div>
                   <div v-if="buildTagText(meal.map_tags)" class="recommendation-tags">
                     {{ buildTagText(meal.map_tags) }}
+                  </div>
+                  <div v-if="buildMapDetailText(meal)" class="recommendation-map-detail">
+                    {{ buildMapDetailText(meal) }}
                   </div>
                   <div v-if="buildContactText(meal)" class="recommendation-contact">
                     {{ buildContactText(meal) }}
@@ -704,7 +852,7 @@ async function handleEdit() {
       <section class="result-card result-card--full">
         <div class="result-card__title">地图点位明细</div>
         <div class="point-grid">
-          <article v-for="point in mapPoints" :key="point.key" class="point-card">
+          <article v-for="point in scenicMapPoints" :key="point.key" class="point-card">
             <div class="point-card__header">
               <span>第{{ point.dayIndex }}天 · {{ point.name }}</span>
               <span>{{ formatShortDate(point.date) }}</span>
@@ -729,13 +877,28 @@ async function handleEdit() {
               </div>
               <div class="point-meta">
                 <span>{{ formatMapRating(point.rating) }}</span>
-                <span>{{ formatReferenceCost(point.averageCost, null) }}</span>
+                <span>{{ formatReferenceCost(point.averageCost, point.estimatedCost) }}</span>
                 <span v-if="formatDistance(point.distanceMeters)">
                   {{ formatDistance(point.distanceMeters) }}
                 </span>
               </div>
               <div v-if="buildTagText(point.tags)" class="point-tags">
                 {{ buildTagText(point.tags) }}
+              </div>
+              <div
+                v-if="[point.businessArea, point.openTimeToday, point.type].filter(Boolean).length"
+                class="point-card__line"
+              >
+                <strong>地图信息：</strong>
+                <span>
+                  {{
+                    [
+                      point.businessArea ? `${point.businessArea}商圈` : "",
+                      point.openTimeToday ? `今日 ${point.openTimeToday}` : "",
+                      point.type ? point.type.split(";").slice(-1)[0] : "",
+                    ].filter(Boolean).join(" · ")
+                  }}
+                </span>
               </div>
               <div v-if="point.tel" class="point-card__line">
                 <strong>电话：</strong>
@@ -932,6 +1095,11 @@ async function handleEdit() {
   min-height: 330px;
 }
 
+.result-card--map {
+  grid-column: 1 / -1;
+  min-height: 520px;
+}
+
 .result-card--full {
   grid-column: 1 / -1;
 }
@@ -969,6 +1137,13 @@ async function handleEdit() {
   line-height: 1.7;
 }
 
+.budget-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 148px;
+  gap: 12px;
+  align-items: stretch;
+}
+
 .budget-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -976,7 +1151,8 @@ async function handleEdit() {
 }
 
 .budget-box {
-  padding: 16px;
+  min-height: 82px;
+  padding: 14px;
   border-radius: 16px;
   background: #f8faff;
   border: 1px solid rgba(98, 116, 164, 0.08);
@@ -988,25 +1164,174 @@ async function handleEdit() {
 }
 
 .budget-box__value {
-  margin-top: 10px;
+  margin-top: 8px;
   color: #3b82f6;
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 21px;
+  font-weight: 800;
 }
 
 .budget-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 14px;
-  padding: 16px 18px;
+  display: grid;
+  align-content: center;
+  justify-items: end;
+  min-height: 100%;
+  padding: 16px;
   border-radius: 18px;
   background: linear-gradient(135deg, #7386e0 0%, #8f71d8 100%);
   color: #ffffff;
 }
 
+.budget-total span {
+  font-size: 13px;
+  font-weight: 800;
+  opacity: 0.86;
+}
+
 .budget-total strong {
-  font-size: 28px;
+  margin-top: 8px;
+  font-size: 30px;
+  line-height: 1;
+  text-align: right;
+}
+
+.compact-weather {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 16px;
+  background: #f8faff;
+  border: 1px solid rgba(98, 116, 164, 0.08);
+}
+
+.compact-weather__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: #465467;
+  font-weight: 800;
+}
+
+.compact-weather__header small {
+  color: #7b8494;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compact-weather__state {
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.compact-weather__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  gap: 8px;
+}
+
+.compact-weather__item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid rgba(98, 116, 164, 0.08);
+}
+
+.compact-weather__item span,
+.compact-weather__item em {
+  overflow: hidden;
+  color: #667085;
+  font-size: 12px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-weather__item strong {
+  color: #3568d4;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.map-card-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.map-card-header .result-card__title {
+  flex: 1;
+}
+
+.map-expand-button,
+.map-modal__close {
+  border: none;
+  border-radius: 14px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #3568d4;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.map-expand-button {
+  min-width: 92px;
+  padding: 12px 14px;
+}
+
+.map-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.map-modal__panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  width: min(1180px, 100%);
+  max-height: calc(100vh - 48px);
+  padding: 18px;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.26);
+}
+
+.map-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.map-modal__header div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.map-modal__header span {
+  color: #465467;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.map-modal__header strong {
+  color: #667085;
+  font-size: 13px;
+}
+
+.map-modal__close {
+  flex: 0 0 auto;
+  padding: 10px 14px;
 }
 
 .weather-state {
@@ -1241,10 +1566,16 @@ async function handleEdit() {
 
 .recommendation-item__reason,
 .recommendation-note,
-.recommendation-contact {
+.recommendation-contact,
+.recommendation-map-detail {
   color: #667085;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.recommendation-map-detail {
+  color: #475467;
+  font-weight: 700;
 }
 
 .recommendation-meta,
@@ -1437,6 +1768,14 @@ async function handleEdit() {
     grid-template-columns: 1fr;
   }
 
+  .budget-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-total {
+    justify-items: start;
+  }
+
   .recommendation-grid {
     grid-template-columns: 1fr;
   }
@@ -1447,6 +1786,20 @@ async function handleEdit() {
 
   .recommendation-item__image {
     min-height: 150px;
+  }
+
+  .result-card--map {
+    min-height: 420px;
+  }
+
+  .map-modal {
+    padding: 12px;
+  }
+
+  .map-modal__panel {
+    max-height: calc(100vh - 24px);
+    padding: 14px;
+    border-radius: 18px;
   }
 }
 </style>

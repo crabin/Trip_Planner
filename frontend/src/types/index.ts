@@ -24,7 +24,7 @@ export interface SpotItem {
   start_time?: string | null;
   end_time?: string | null;
   description?: string | null;
-  estimated_cost?: number;
+  estimated_cost?: number | null;
   location?: string | null;
   image_url?: string | null;
   address?: string | null;
@@ -36,6 +36,19 @@ export interface SpotItem {
   map_tags?: string[];
   map_tel?: string | null;
   map_distance_meters?: number | null;
+  map_type?: string | null;
+  map_typecode?: string | null;
+  map_business_area?: string | null;
+  map_open_time_today?: string | null;
+  map_open_time_week?: string | null;
+  data_source?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
+  review_count?: number | null;
+  ranking_label?: string | null;
+  recommendation_score?: number | null;
+  recommendation_reason?: string | null;
+  is_recommended?: boolean;
 }
 
 export interface MealItem {
@@ -53,6 +66,19 @@ export interface MealItem {
   map_tags?: string[];
   map_tel?: string | null;
   map_distance_meters?: number | null;
+  map_type?: string | null;
+  map_typecode?: string | null;
+  map_business_area?: string | null;
+  map_open_time_today?: string | null;
+  map_open_time_week?: string | null;
+  data_source?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
+  review_count?: number | null;
+  ranking_label?: string | null;
+  recommendation_score?: number | null;
+  recommendation_reason?: string | null;
+  is_recommended?: boolean;
 }
 
 export interface HotelItem {
@@ -70,6 +96,19 @@ export interface HotelItem {
   map_tags?: string[];
   map_tel?: string | null;
   map_distance_meters?: number | null;
+  map_type?: string | null;
+  map_typecode?: string | null;
+  map_business_area?: string | null;
+  map_open_time_today?: string | null;
+  map_open_time_week?: string | null;
+  data_source?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
+  review_count?: number | null;
+  ranking_label?: string | null;
+  recommendation_score?: number | null;
+  recommendation_reason?: string | null;
+  is_recommended?: boolean;
 }
 
 export interface TransportItem {
@@ -89,6 +128,8 @@ export interface DayPlan {
   spots: SpotItem[];
   meals: MealItem[];
   hotel?: HotelItem | null;
+  hotel_candidates?: HotelItem[];
+  meal_candidates?: MealItem[];
   transport: TransportItem[];
   notes: string[];
 }

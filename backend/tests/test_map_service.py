@@ -27,28 +27,37 @@ def _disable_cache(monkeypatch) -> None:
     )
 
 
-def test_search_places_normalizes_amap_rating_cost_and_tags(monkeypatch) -> None:
-    """测试关键字 POI 搜索会保留评分、参考消费、标签和图片。"""
+def test_search_places_normalizes_amap_business_fields(monkeypatch) -> None:
+    """测试关键字 POI 搜索会保留高德公开 business 字段。"""
     _disable_cache(monkeypatch)
 
     monkeypatch.setattr(
         map_service,
-        "_request_amap",
-        lambda path, params: {
+        "_request_amap_versioned",
+        lambda path, params, api_version="v3": {
             "status": "1",
-            "pois": [
-                {
-                    "id": "B001",
-                    "name": "大理古城",
-                    "address": "一塔路",
-                    "location": "100.161,25.694",
-                    "type": "风景名胜;风景名胜;旅游景点",
-                    "tel": "0872-0000000",
-                    "tag": "古城;拍照",
-                    "biz_ext": {"rating": "4.7", "cost": "0"},
-                    "photos": [{"url": "https://example.test/dali.jpg"}],
-                }
-            ],
+            "pois": {
+                "poi": [
+                    {
+                        "id": "B001",
+                        "name": "大理古城",
+                        "address": "一塔路",
+                        "location": "100.161,25.694",
+                        "type": "风景名胜;风景名胜;旅游景点",
+                        "typecode": "110000",
+                        "business": {
+                            "business_area": "古城",
+                            "rating": "4.7",
+                            "cost": "0",
+                            "tag": "古城;拍照",
+                            "tel": "0872-0000000",
+                            "opentime_today": "全天开放",
+                            "opentime_week": "周一至周日 全天开放",
+                        },
+                        "photos": [{"url": "https://example.test/dali.jpg"}],
+                    }
+                ]
+            },
         },
     )
 
@@ -61,17 +70,22 @@ def test_search_places_normalizes_amap_rating_cost_and_tags(monkeypatch) -> None
             "cityname": None,
             "adname": None,
             "type": "风景名胜;风景名胜;旅游景点",
-            "typecode": None,
+            "typecode": "110000",
             "poi_id": "B001",
             "image_url": "https://example.test/dali.jpg",
             "latitude": 25.694,
             "longitude": 100.161,
-            "business_area": None,
+            "business_area": "古城",
             "map_rating": 4.7,
             "map_average_cost": 0.0,
             "map_tags": ["古城", "拍照"],
             "map_tel": "0872-0000000",
             "map_distance_meters": None,
+            "map_type": "风景名胜;风景名胜;旅游景点",
+            "map_typecode": "110000",
+            "map_business_area": "古城",
+            "map_open_time_today": "全天开放",
+            "map_open_time_week": "周一至周日 全天开放",
         }
     ]
 
@@ -94,7 +108,14 @@ def test_search_nearby_places_uses_v5_business_fields_and_ranks(monkeypatch) -> 
                         "location": "100.160,25.690",
                         "address": "近处",
                         "distance": "80",
-                        "business": {"rating": "4.1", "cost": "50", "tag": "本地菜"},
+                        "type": "餐饮服务;中餐厅;中餐厅",
+                        "business": {
+                            "rating": "4.1",
+                            "cost": "50",
+                            "tag": "本地菜",
+                            "business_area": "古城",
+                            "opentime_today": "10:00-21:00",
+                        },
                     },
                     {
                         "id": "R_HIGH",
@@ -102,7 +123,14 @@ def test_search_nearby_places_uses_v5_business_fields_and_ranks(monkeypatch) -> 
                         "location": "100.162,25.691",
                         "address": "稍远",
                         "distance": "220",
-                        "business": {"rating": "4.8", "cost": "88", "tag": "白族菜;菌菇"},
+                        "type": "餐饮服务;中餐厅;特色餐厅",
+                        "business": {
+                            "rating": "4.8",
+                            "cost": "88",
+                            "tag": "白族菜;菌菇",
+                            "business_area": "人民路",
+                            "opentime_today": "11:00-22:00",
+                        },
                     },
                 ]
             },
@@ -121,6 +149,62 @@ def test_search_nearby_places_uses_v5_business_fields_and_ranks(monkeypatch) -> 
     assert places[0]["map_rating"] == 4.8
     assert places[0]["map_average_cost"] == 88.0
     assert places[0]["map_tags"] == ["白族菜", "菌菇"]
+    assert places[0]["map_business_area"] == "人民路"
+    assert places[0]["map_open_time_today"] == "11:00-22:00"
+    assert places[0]["map_type"] == "餐饮服务;中餐厅;特色餐厅"
+
+
+def test_pick_best_place_uses_detail_to_fill_missing_public_fields(monkeypatch) -> None:
+    """测试 POI 详情可补齐搜索结果缺失的营业时间等公开字段。"""
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        map_service,
+        "search_places",
+        lambda keyword, city=None, page_size=1: [
+            {
+                "name": "大理古城",
+                "address": "一塔路",
+                "poi_id": "B001",
+                "image_url": None,
+                "latitude": 25.694,
+                "longitude": 100.161,
+                "map_rating": None,
+                "map_average_cost": None,
+                "map_tags": [],
+                "map_tel": None,
+                "map_distance_meters": None,
+                "map_type": "风景名胜;风景名胜;旅游景点",
+                "map_typecode": "110000",
+                "map_business_area": None,
+                "map_open_time_today": None,
+                "map_open_time_week": None,
+            }
+        ],
+    )
+
+    def fake_detail(poi_id):
+        calls.append(poi_id)
+        return {
+            "poi_id": poi_id,
+            "image_url": "https://example.test/detail.jpg",
+            "map_rating": 4.9,
+            "map_average_cost": 0.0,
+            "map_business_area": "古城",
+            "map_open_time_today": "全天开放",
+            "map_open_time_week": "周一至周日 全天开放",
+        }
+
+    monkeypatch.setattr(map_service, "get_place_detail", fake_detail)
+
+    place = map_service._pick_best_place("大理古城", city="大理")
+
+    assert calls == ["B001"]
+    assert place is not None
+    assert place["image_url"] == "https://example.test/detail.jpg"
+    assert place["map_rating"] == 4.9
+    assert place["map_business_area"] == "古城"
+    assert place["map_open_time_today"] == "全天开放"
 
 
 def test_enrich_itinerary_adds_nearby_hotel_and_restaurant(monkeypatch) -> None:
@@ -141,6 +225,11 @@ def test_enrich_itinerary_adds_nearby_hotel_and_restaurant(monkeypatch) -> None:
                 "map_tags": ["古城"],
                 "map_tel": None,
                 "map_distance_meters": None,
+                "map_type": "风景名胜;风景名胜;旅游景点",
+                "map_typecode": "110000",
+                "map_business_area": "古城",
+                "map_open_time_today": "全天开放",
+                "map_open_time_week": "周一至周日 全天开放",
             }
         ],
     )
@@ -161,6 +250,11 @@ def test_enrich_itinerary_adds_nearby_hotel_and_restaurant(monkeypatch) -> None:
                 "map_tags": ["客栈", "近景点"],
                 "map_tel": "0872-1111111",
                 "map_distance_meters": 180.0,
+                "map_type": "住宿服务;宾馆酒店;宾馆酒店",
+                "map_typecode": "100000",
+                "map_business_area": "大理古城",
+                "map_open_time_today": "全天营业",
+                "map_open_time_week": "周一至周日 全天营业",
             }
         ],
     )
@@ -180,6 +274,11 @@ def test_enrich_itinerary_adds_nearby_hotel_and_restaurant(monkeypatch) -> None:
                 "map_tags": ["白族菜", "菌菇"],
                 "map_tel": "0872-2222222",
                 "map_distance_meters": 220.0,
+                "map_type": "餐饮服务;中餐厅;特色餐厅",
+                "map_typecode": "050100",
+                "map_business_area": "复兴路",
+                "map_open_time_today": "11:00-22:00",
+                "map_open_time_week": "周一至周日 11:00-22:00",
             }
         ],
     )
@@ -204,10 +303,119 @@ def test_enrich_itinerary_adds_nearby_hotel_and_restaurant(monkeypatch) -> None:
     day = enriched.days[0]
     assert day.spots[0].poi_id == "SPOT_1"
     assert day.spots[0].map_rating == 4.7
+    assert day.spots[0].map_open_time_today == "全天开放"
     assert day.hotel is not None
     assert day.hotel.name == "古城旁精品酒店"
     assert day.hotel.map_average_cost == 388.0
+    assert day.hotel.map_business_area == "大理古城"
     assert day.meals[0].name == "本地白族菜馆"
     assert day.meals[0].map_rating == 4.8
+    assert day.meals[0].map_open_time_today == "11:00-22:00"
     assert "参考人均 ¥76" in (day.meals[0].notes or "")
+    assert "今日营业：11:00-22:00" in (day.meals[0].notes or "")
     assert any("附近餐饮住宿" in note for note in enriched.source_notes)
+
+
+def test_enrich_itinerary_uses_external_recommendation_but_keeps_candidates(
+    monkeypatch,
+) -> None:
+    """测试外部美团/点评候选可参与推荐，未选中的候选仍保留给地图。"""
+    monkeypatch.setattr(
+        map_service,
+        "search_places",
+        lambda keyword, city=None, page_size=1: [
+            {
+                "name": "大理古城",
+                "address": "一塔路",
+                "poi_id": "SPOT_1",
+                "latitude": 25.694,
+                "longitude": 100.161,
+                "map_rating": 4.7,
+                "map_average_cost": 0.0,
+                "map_tags": ["古城"],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        map_service,
+        "recommend_nearby_hotels",
+        lambda longitude, latitude, radius=3000, page_size=10: [
+            {
+                "data_source": "amap",
+                "name": "高德普通酒店",
+                "address": "古城边",
+                "poi_id": "A_HOTEL",
+                "latitude": 25.695,
+                "longitude": 100.162,
+                "map_rating": 4.2,
+                "map_average_cost": 320.0,
+                "map_distance_meters": 160.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        map_service,
+        "recommend_nearby_restaurants",
+        lambda longitude, latitude, radius=2000, page_size=10: [
+            {
+                "data_source": "amap",
+                "name": "高德普通餐厅",
+                "address": "古城口",
+                "poi_id": "A_MEAL",
+                "latitude": 25.696,
+                "longitude": 100.163,
+                "map_rating": 4.1,
+                "map_average_cost": 60.0,
+                "map_distance_meters": 120.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        map_service,
+        "fetch_local_life_candidates",
+        lambda longitude, latitude, category, radius, page_size=10: [
+            {
+                "data_source": "dianping",
+                "source_id": f"DP_{category}",
+                "name": "点评精选酒店" if category == "hotel" else "点评精选白族菜",
+                "address": "人民路 9 号",
+                "latitude": 25.697,
+                "longitude": 100.164,
+                "map_rating": 4.9,
+                "map_average_cost": 420.0 if category == "hotel" else 88.0,
+                "map_distance_meters": 260.0,
+                "review_count": 900,
+                "ranking_label": "本地热门",
+            }
+        ],
+    )
+
+    itinerary = Itinerary(
+        trip_id="trip_test",
+        destination="大理",
+        summary="测试行程",
+        days=[
+            DayPlan(
+                day_index=1,
+                spots=[SpotItem(name="大理古城")],
+                meals=[MealItem(name="午餐推荐", meal_type="午餐")],
+                hotel=HotelItem(name="大理 舒适型住宿 1", level="舒适型"),
+            )
+        ],
+        budget_breakdown=BudgetBreakdown(),
+    )
+
+    enriched = map_service.enrich_itinerary_with_map_data(itinerary, city="大理")
+    day = enriched.days[0]
+
+    assert day.hotel is not None
+    assert day.hotel.name == "点评精选酒店"
+    assert day.hotel.data_source == "dianping"
+    assert day.hotel.is_recommended is True
+    assert len(day.hotel_candidates) == 2
+    assert day.hotel_candidates[0].is_recommended is True
+    assert day.hotel_candidates[1].is_recommended is False
+    assert day.meals[0].name == "点评精选白族菜"
+    assert day.meals[0].data_source == "dianping"
+    assert len(day.meal_candidates) == 2
+    assert day.meal_candidates[1].is_recommended is False
