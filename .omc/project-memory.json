@@ -105,14 +105,20 @@
   "hotPaths": [
     {
       "path": "backend/app/services/trip_service.py",
-      "accessCount": 5,
-      "lastAccessed": 1778072893101,
+      "accessCount": 9,
+      "lastAccessed": 1782033272979,
       "type": "file"
     },
     {
       "path": "frontend/src/views/Home.vue",
-      "accessCount": 5,
-      "lastAccessed": 1778074127674,
+      "accessCount": 6,
+      "lastAccessed": 1782033262686,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/models/schemas.py",
+      "accessCount": 6,
+      "lastAccessed": 1782033284185,
       "type": "file"
     },
     {
@@ -122,15 +128,21 @@
       "type": "file"
     },
     {
-      "path": "backend/app/rag/retriever.py",
-      "accessCount": 4,
-      "lastAccessed": 1778072865485,
+      "path": "frontend/src/services/api.ts",
+      "accessCount": 5,
+      "lastAccessed": 1782033263010,
       "type": "file"
     },
     {
-      "path": "frontend/src/services/api.ts",
+      "path": "backend/app/api/routes/trip.py",
+      "accessCount": 5,
+      "lastAccessed": 1782033272839,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/rag/retriever.py",
       "accessCount": 4,
-      "lastAccessed": 1778072865505,
+      "lastAccessed": 1778072865485,
       "type": "file"
     },
     {
@@ -141,8 +153,14 @@
     },
     {
       "path": "frontend/src/App.vue",
-      "accessCount": 3,
-      "lastAccessed": 1778072651729,
+      "accessCount": 4,
+      "lastAccessed": 1782033272801,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/services/storage_service.py",
+      "accessCount": 4,
+      "lastAccessed": 1782033284085,
       "type": "file"
     },
     {
@@ -152,21 +170,9 @@
       "type": "file"
     },
     {
-      "path": "backend/app/models/schemas.py",
-      "accessCount": 3,
-      "lastAccessed": 1778072837892,
-      "type": "file"
-    },
-    {
       "path": "backend/app/agents/trip_planner_agent.py",
       "accessCount": 3,
       "lastAccessed": 1778072837944,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/api/routes/trip.py",
-      "accessCount": 3,
-      "lastAccessed": 1778072837982,
       "type": "file"
     },
     {
@@ -194,6 +200,36 @@
       "type": "file"
     },
     {
+      "path": "CLAUDE.md",
+      "accessCount": 3,
+      "lastAccessed": 1782032554059,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/__init__.py",
+      "accessCount": 3,
+      "lastAccessed": 1782032782057,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/agent.py",
+      "accessCount": 3,
+      "lastAccessed": 1782032782390,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/types/index.ts",
+      "accessCount": 3,
+      "lastAccessed": 1782033262919,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/models/db_models.py",
+      "accessCount": 3,
+      "lastAccessed": 1782033283904,
+      "type": "file"
+    },
+    {
       "path": "frontend/package.json",
       "accessCount": 2,
       "lastAccessed": 1778051395476,
@@ -206,27 +242,99 @@
       "type": "file"
     },
     {
-      "path": "backend/app/services/storage_service.py",
-      "accessCount": 2,
-      "lastAccessed": 1778072674532,
-      "type": "file"
-    },
-    {
-      "path": "frontend/src/types/index.ts",
-      "accessCount": 2,
-      "lastAccessed": 1778072893150,
-      "type": "file"
-    },
-    {
       "path": "backend/app/services/cache_service.py",
       "accessCount": 2,
       "lastAccessed": 1778072893260,
       "type": "file"
     },
     {
+      "path": "backend/app/agents/trip_planner_agent/README.md",
+      "accessCount": 2,
+      "lastAccessed": 1782032583838,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/state/models.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032601309,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/prompts/planner.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032601375,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/nodes/context.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032601778,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/nodes/generation.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032607526,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/README.md",
+      "accessCount": 2,
+      "lastAccessed": 1782032759405,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032759672,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/agent.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032759901,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/llms/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032760350,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/nodes/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032760513,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/prompts/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032760805,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/state/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032760933,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/destination_intelligence_agent/tools/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032761064,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1782032782477,
+      "type": "file"
+    },
+    {
       "path": "backend/app/api/routes/export.py",
-      "accessCount": 1,
-      "lastAccessed": 1778051316905,
+      "accessCount": 2,
+      "lastAccessed": 1782033273033,
       "type": "file"
     },
     {
@@ -254,12 +362,6 @@
       "type": "file"
     },
     {
-      "path": "backend/app/models/db_models.py",
-      "accessCount": 1,
-      "lastAccessed": 1778072662468,
-      "type": "file"
-    },
-    {
       "path": "frontend/.env.example",
       "accessCount": 1,
       "lastAccessed": 1778072682504,
@@ -269,6 +371,36 @@
       "path": "frontend/vite.config.ts",
       "accessCount": 1,
       "lastAccessed": 1778072682563,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/llms/chat.py",
+      "accessCount": 1,
+      "lastAccessed": 1782032335251,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/utils/responses.py",
+      "accessCount": 1,
+      "lastAccessed": 1782032335625,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/tools/arithmetic_tool.py",
+      "accessCount": 1,
+      "lastAccessed": 1782032343444,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/prompts/day_editor.py",
+      "accessCount": 1,
+      "lastAccessed": 1782032343471,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/tools/rag_tool.py",
+      "accessCount": 1,
+      "lastAccessed": 1782032343530,
       "type": "file"
     }
   ],

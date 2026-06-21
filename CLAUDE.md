@@ -11,6 +11,74 @@ Trip Planner is a full-stack travel itinerary app for Chinese travel scenarios.
 
 The backend is the system of record for itinerary structure. The frontend mostly mirrors backend schema types and calls typed API wrappers in `frontend/src/services/api.ts`.
 
+## Code navigation and implementation workflow
+
+Use CodeGraph as the first-pass map for non-trivial code reading and programming tasks, then verify with direct file reads before editing.
+
+Recommended CodeGraph flow:
+
+```bash
+codegraph status .          # confirm the index is current
+codegraph sync .            # refresh the index after meaningful edits
+codegraph explore <area>    # inspect relevant symbols, source, and call paths
+codegraph node <symbol>     # inspect one symbol or file with callers/callees
+codegraph callers <symbol>  # find inbound dependencies
+codegraph callees <symbol>  # find outbound dependencies
+codegraph impact <symbol>   # assess change impact before modifying shared code
+codegraph affected <files>  # identify tests affected by changed source files
+```
+
+Use CodeGraph specifically when:
+- entering unfamiliar backend/frontend areas,
+- changing shared schemas, service methods, API wrappers, or components,
+- tracing request flow, RAG behavior, map enrichment, export, or persistence logic,
+- choosing targeted tests after a code change.
+
+Do not rely on CodeGraph alone. Treat it as an index and dependency map; confirm final details in the source files and run the relevant verification commands.
+
+## Karpathy coding guidelines
+
+Bias toward caution over speed for non-trivial work. For trivial edits, use judgment and keep the process lightweight.
+
+### Think before coding
+
+- State assumptions before implementing. If uncertain, ask.
+- If multiple interpretations exist, surface them instead of silently choosing.
+- If a simpler approach exists, prefer it or explain the tradeoff.
+- If requirements are unclear, stop and name what is confusing.
+
+### Simplicity first
+
+- Write the minimum code that solves the requested problem.
+- Do not add speculative features, abstractions, configuration, or flexibility.
+- Avoid single-use abstraction layers and impossible-scenario error handling.
+- If a solution feels overbuilt, simplify before finishing.
+
+### Surgical changes
+
+- Touch only the files and lines required by the request.
+- Do not refactor, reformat, or improve adjacent code unless asked.
+- Match existing project style, naming, and structure.
+- Remove only imports, variables, functions, or files made unused by your own change.
+- Mention unrelated dead code or cleanup opportunities instead of deleting them.
+
+### Goal-driven execution
+
+For multi-step tasks, define success criteria and verification up front:
+
+```text
+1. [Step] -> verify: [check]
+2. [Step] -> verify: [check]
+3. [Step] -> verify: [check]
+```
+
+Examples:
+- Bug fix: reproduce with a focused test or command, then make it pass.
+- Refactor: verify behavior before and after with the same targeted checks.
+- Payload/schema change: update backend models first, then frontend types/API wrappers, then build/test both sides.
+
+Loop until the stated checks pass, or report the blocker with evidence.
+
 ## Common commands
 
 ### Backend setup and run
