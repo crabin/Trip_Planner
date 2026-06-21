@@ -5,9 +5,9 @@ import { message } from "ant-design-vue";
 import AmapTripMap from "../components/AmapTripMap.vue";
 import {
   editTrip,
+  exportTripMarkdown,
+  exportTripPdf,
   fetchWeatherForecast,
-  getMarkdownExportUrl,
-  getPdfExportUrl,
   saveTrip,
 } from "../services/api";
 import type { HotelItem, Itinerary, MealItem, SpotItem, WeatherForecastResponse } from "../types";
@@ -400,6 +400,16 @@ function buildVisibleItinerary(): Itinerary | null {
   };
 }
 
+function openExportBlob(exportWindow: Window | null, blob: Blob) {
+  const exportUrl = URL.createObjectURL(blob);
+  if (exportWindow) {
+    exportWindow.location.href = exportUrl;
+  } else {
+    window.location.href = exportUrl;
+  }
+  window.setTimeout(() => URL.revokeObjectURL(exportUrl), 60_000);
+}
+
 async function loadWeather() {
   if (!props.itinerary?.destination) {
     weather.value = null;
@@ -445,17 +455,12 @@ async function openPdfExport() {
   const exportWindow = window.open("about:blank", "_blank");
   exportingPdf.value = true;
   try {
-    await saveTrip(itineraryToExport);
-    const exportUrl = getPdfExportUrl(itineraryToExport.trip_id);
-    if (exportWindow) {
-      exportWindow.location.href = exportUrl;
-    } else {
-      window.location.href = exportUrl;
-    }
+    const pdfBlob = await exportTripPdf(itineraryToExport);
+    openExportBlob(exportWindow, pdfBlob);
   } catch (error) {
     console.error(error);
     exportWindow?.close();
-    message.error("导出 PDF 前同步当前行程失败。");
+    message.error("生成 PDF 失败。");
   } finally {
     exportingPdf.value = false;
   }
@@ -470,17 +475,12 @@ async function openMarkdownExport() {
   const exportWindow = window.open("about:blank", "_blank");
   exportingMarkdown.value = true;
   try {
-    await saveTrip(itineraryToExport);
-    const exportUrl = getMarkdownExportUrl(itineraryToExport.trip_id);
-    if (exportWindow) {
-      exportWindow.location.href = exportUrl;
-    } else {
-      window.location.href = exportUrl;
-    }
+    const markdownBlob = await exportTripMarkdown(itineraryToExport);
+    openExportBlob(exportWindow, markdownBlob);
   } catch (error) {
     console.error(error);
     exportWindow?.close();
-    message.error("导出 Markdown 前同步当前行程失败。");
+    message.error("生成 Markdown 失败。");
   } finally {
     exportingMarkdown.value = false;
   }

@@ -81,6 +81,7 @@ def test_edit_trip_returns_updated_itinerary_successfully(monkeypatch) -> None:
 
     generated_response = client.post("/trip/generate", json=build_generate_payload())
     generated_itinerary = generated_response.json()
+    generated_itinerary["trip_id"] = "trip_edit_draft_not_saved"
 
     edit_payload = {
         "trip_id": generated_itinerary["trip_id"],
@@ -96,6 +97,8 @@ def test_edit_trip_returns_updated_itinerary_successfully(monkeypatch) -> None:
     data = response.json()
     assert data["trip_id"] == generated_itinerary["trip_id"]
     assert data["days"][1]["theme"].endswith("（已调整为更轻松）")
+    history_ids = {item["trip_id"] for item in client.get("/trip").json()["items"]}
+    assert generated_itinerary["trip_id"] not in history_ids
 
 
 def test_edit_trip_rejects_invalid_request() -> None:
@@ -231,6 +234,37 @@ def test_export_trip_pdf_returns_pdf_bytes(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/pdf")
     assert response.content.startswith(b"%PDF")
+
+
+def test_export_draft_markdown_does_not_add_history_record() -> None:
+    """导出未保存草稿时，不应把草稿隐式加入历史列表。"""
+    generated_itinerary = client.post("/trip/generate", json=build_generate_payload()).json()
+    generated_itinerary["trip_id"] = "trip_markdown_draft_not_saved"
+
+    response = client.post("/export/markdown", json=generated_itinerary)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    history_ids = {item["trip_id"] for item in client.get("/trip").json()["items"]}
+    assert generated_itinerary["trip_id"] not in history_ids
+
+
+def test_export_draft_pdf_does_not_add_history_record(monkeypatch) -> None:
+    """导出未保存草稿 PDF 时，不应把草稿隐式加入历史列表。"""
+    generated_itinerary = client.post("/trip/generate", json=build_generate_payload()).json()
+    generated_itinerary["trip_id"] = "trip_pdf_draft_not_saved"
+    monkeypatch.setattr(
+        export_route,
+        "itinerary_to_pdf_bytes",
+        lambda trip_detail: b"%PDF-1.4\n%mock pdf\n",
+    )
+
+    response = client.post("/export/pdf", json=generated_itinerary)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+    history_ids = {item["trip_id"] for item in client.get("/trip").json()["items"]}
+    assert generated_itinerary["trip_id"] not in history_ids
 
 
 def test_generate_trip_response_includes_rag_context() -> None:

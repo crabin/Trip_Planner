@@ -51,19 +51,25 @@ export async function deleteTrip(tripId: string): Promise<void> {
   await api.delete(`/trip/${tripId}`);
 }
 
+export async function exportTripMarkdown(itinerary: Itinerary): Promise<Blob> {
+  const response = await api.post<Blob>("/export/markdown", itinerary, {
+    responseType: "blob",
+  });
+  return response.data;
+}
+
+export async function exportTripPdf(itinerary: Itinerary): Promise<Blob> {
+  const response = await api.post<Blob>("/export/pdf", itinerary, {
+    responseType: "blob",
+  });
+  return response.data;
+}
+
 export async function fetchWeatherForecast(city: string): Promise<WeatherForecastResponse> {
   const response = await api.get<WeatherForecastResponse>("/weather/forecast", {
     params: { city },
   });
   return response.data;
-}
-
-export function getMarkdownExportUrl(tripId: string): string {
-  return `${API_BASE_URL}/export/${encodeURIComponent(tripId)}/markdown`;
-}
-
-export function getPdfExportUrl(tripId: string): string {
-  return `${API_BASE_URL}/export/${encodeURIComponent(tripId)}/pdf`;
 }
 
 export default api;

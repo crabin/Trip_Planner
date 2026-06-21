@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1778051168136,
+  "lastScanned": 1782032181425,
   "projectRoot": "/Users/lpb/workspace/myProjects/Trip_Planner",
   "techStack": {
     "languages": [],
@@ -25,12 +25,10 @@
     "isMonorepo": false,
     "workspaces": [],
     "mainDirectories": [
-      "assets"
+      "assets",
+      "docs"
     ],
-    "gitBranches": {
-      "defaultBranch": "main",
-      "branchingStrategy": null
-    }
+    "gitBranches": null
   },
   "customNotes": [],
   "directoryMap": {
@@ -38,14 +36,14 @@
       "path": "assets",
       "purpose": "Static assets",
       "fileCount": 0,
-      "lastAccessed": 1778051168112,
+      "lastAccessed": 1782032181410,
       "keyFiles": []
     },
     "backend": {
       "path": "backend",
       "purpose": null,
       "fileCount": 9,
-      "lastAccessed": 1778051168112,
+      "lastAccessed": 1782032181410,
       "keyFiles": [
         "README.md",
         "main.py",
@@ -54,11 +52,21 @@
         "uv.lock"
       ]
     },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1782032181411,
+      "keyFiles": [
+        "rag-build-and-evaluation-plan.md",
+        "trip-generate-flow.md"
+      ]
+    },
     "frontend": {
       "path": "frontend",
       "purpose": null,
       "fileCount": 10,
-      "lastAccessed": 1778051168112,
+      "lastAccessed": 1782032181412,
       "keyFiles": [
         "README.md",
         "index.html",
@@ -71,28 +79,27 @@
       "path": "backend/app",
       "purpose": "Application code",
       "fileCount": 3,
-      "lastAccessed": 1778051168113,
+      "lastAccessed": 1782032181412,
       "keyFiles": [
         "__init__.py",
         "config.py"
+      ]
+    },
+    "frontend/dist": {
+      "path": "frontend/dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 1,
+      "lastAccessed": 1782032181413,
+      "keyFiles": [
+        "index.html"
       ]
     },
     "frontend/node_modules": {
       "path": "frontend/node_modules",
       "purpose": "Dependencies",
       "fileCount": 2,
-      "lastAccessed": 1778051168115,
+      "lastAccessed": 1782032181413,
       "keyFiles": []
-    },
-    "frontend/src": {
-      "path": "frontend/src",
-      "purpose": "Source code",
-      "fileCount": 3,
-      "lastAccessed": 1778051168115,
-      "keyFiles": [
-        "App.vue",
-        "main.ts"
-      ]
     }
   },
   "hotPaths": [

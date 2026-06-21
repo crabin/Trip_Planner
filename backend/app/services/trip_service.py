@@ -9,7 +9,9 @@ from app.agents.trip_planner_agent import (
     generate_day_edit_draft,
     generate_planner_draft,
 )
-from app.agents.tools.arithmetic_tool import calculate_budget_breakdown_with_tools
+from app.agents.trip_planner_agent.tools.arithmetic_tool import (
+    calculate_budget_breakdown_with_tools,
+)
 from app.config import ENABLE_AMAP_ENRICHMENT
 from app.models.schemas import (
     BudgetBreakdown,
