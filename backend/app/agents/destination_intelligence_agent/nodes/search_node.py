@@ -14,8 +14,69 @@ from ..utils import (
     remove_reasoning_from_output,
     clean_json_tags,
     extract_clean_response,
-    fix_incomplete_json
 )
+
+
+SEARCH_TOOLS = frozenset(
+    {
+        "basic_search_news",
+        "deep_search_news",
+        "search_news_last_24_hours",
+        "search_news_last_week",
+        "search_images_for_news",
+        "search_news_by_date",
+    }
+)
+
+
+def _parse_search_plan(
+    output: str,
+    fallback_query: str,
+    fallback_reason: str,
+) -> Dict[str, str]:
+    """Parse and validate the LLM search-plan contract without dropping fields."""
+    cleaned_output = clean_json_tags(remove_reasoning_from_output(output))
+    logger.debug("已清理搜索计划输出，长度: {}", len(cleaned_output))
+    result = extract_clean_response(cleaned_output)
+
+    if not isinstance(result, dict) or "error" in result:
+        return {
+            "search_query": fallback_query,
+            "search_tool": "basic_search_news",
+            "reasoning": fallback_reason,
+        }
+
+    search_query = str(result.get("search_query") or "").strip()
+    if not search_query:
+        return {
+            "search_query": fallback_query,
+            "search_tool": "basic_search_news",
+            "reasoning": fallback_reason,
+        }
+
+    requested_tool = str(result.get("search_tool") or "basic_search_news")
+    search_tool = requested_tool if requested_tool in SEARCH_TOOLS else "basic_search_news"
+    plan = {
+        "search_query": search_query,
+        "search_tool": search_tool,
+        "reasoning": str(result.get("reasoning") or "").strip(),
+    }
+
+    if search_tool == "search_news_by_date":
+        for field_name in ("start_date", "end_date"):
+            field_value = result.get(field_name)
+            if field_value:
+                plan[field_name] = str(field_value).strip()
+
+    return plan
+
+
+def _fallback_query(input_data: Dict[str, Any], suffix: str) -> str:
+    """Build a useful fallback query from the trip rather than generic filler."""
+    context = str(input_data.get("trip_context") or "").strip()
+    title = str(input_data.get("title") or "").strip()
+    query = " ".join(part for part in (context, title, suffix) if part)
+    return query[:500] or suffix
 
 
 class FirstSearchNode(BaseNode):
@@ -58,10 +119,8 @@ class FirstSearchNode(BaseNode):
                 raise ValueError("输入数据格式错误，需要包含title和content字段")
             
             # 准备输入数据
-            if isinstance(input_data, str):
-                message = input_data
-            else:
-                message = json.dumps(input_data, ensure_ascii=False)
+            data = json.loads(input_data) if isinstance(input_data, str) else input_data
+            message = json.dumps(data, ensure_ascii=False)
             
             logger.info("正在生成首次搜索查询")
             
@@ -69,16 +128,23 @@ class FirstSearchNode(BaseNode):
             response = self.llm_client.stream_invoke_to_string(SYSTEM_PROMPT_FIRST_SEARCH, message)
             
             # 处理响应
-            processed_response = self.process_output(response)
+            processed_response = self.process_output(
+                response,
+                fallback_query=_fallback_query(data, "官方旅行信息核查"),
+            )
             
             logger.info(f"生成搜索查询: {processed_response.get('search_query', 'N/A')}")
             return processed_response
             
         except Exception as e:
             logger.exception(f"生成首次搜索查询失败: {str(e)}")
-            raise e
+            raise
     
-    def process_output(self, output: str) -> Dict[str, str]:
+    def process_output(
+        self,
+        output: str,
+        fallback_query: str = "目的地官方旅行信息核查",
+    ) -> Dict[str, str]:
         """
         处理LLM输出，提取搜索查询和推理
         
@@ -88,55 +154,11 @@ class FirstSearchNode(BaseNode):
         Returns:
             包含search_query和reasoning的字典
         """
-        try:
-            # 清理响应文本
-            cleaned_output = remove_reasoning_from_output(output)
-            cleaned_output = clean_json_tags(cleaned_output)
-            
-            # 记录清理后的输出用于调试
-            logger.info(f"清理后的输出: {cleaned_output}")
-            
-            # 解析JSON
-            try:
-                result = json.loads(cleaned_output)
-                logger.info("JSON解析成功")
-            except JSONDecodeError as e:
-                logger.error(f"JSON解析失败: {str(e)}")
-                # 使用更强大的提取方法
-                result = extract_clean_response(cleaned_output)
-                if "error" in result:
-                    logger.error("JSON解析失败，尝试修复...")
-                    # 尝试修复JSON
-                    fixed_json = fix_incomplete_json(cleaned_output)
-                    if fixed_json:
-                        try:
-                            result = json.loads(fixed_json)
-                            logger.info("JSON修复成功")
-                        except JSONDecodeError:
-                            logger.error("JSON修复失败")
-                            # 返回默认查询
-                            return self._get_default_search_query()
-                    else:
-                        logger.error("无法修复JSON，使用默认查询")
-                        return self._get_default_search_query()
-            
-            # 验证和清理结果
-            search_query = result.get("search_query", "")
-            reasoning = result.get("reasoning", "")
-            
-            if not search_query:
-                logger.warning("未找到搜索查询，使用默认查询")
-                return self._get_default_search_query()
-            
-            return {
-                "search_query": search_query,
-                "reasoning": reasoning
-            }
-            
-        except Exception as e:
-            self.log_error(f"处理输出失败: {str(e)}")
-            # 返回默认查询
-            return self._get_default_search_query()
+        return _parse_search_plan(
+            output,
+            fallback_query,
+            "LLM搜索计划无效，改用行程上下文构造的基础搜索",
+        )
     
     def _get_default_search_query(self) -> Dict[str, str]:
         """
@@ -146,7 +168,8 @@ class FirstSearchNode(BaseNode):
             默认的搜索查询字典
         """
         return {
-            "search_query": "相关主题研究",
+            "search_query": "目的地官方旅行信息核查",
+            "search_tool": "basic_search_news",
             "reasoning": "由于解析失败，使用默认搜索查询"
         }
 
@@ -193,10 +216,8 @@ class ReflectionNode(BaseNode):
                 raise ValueError("输入数据格式错误，需要包含title、content和paragraph_latest_state字段")
             
             # 准备输入数据
-            if isinstance(input_data, str):
-                message = input_data
-            else:
-                message = json.dumps(input_data, ensure_ascii=False)
+            data = json.loads(input_data) if isinstance(input_data, str) else input_data
+            message = json.dumps(data, ensure_ascii=False)
             
             logger.info("正在进行反思并生成新搜索查询")
             
@@ -204,16 +225,23 @@ class ReflectionNode(BaseNode):
             response = self.llm_client.stream_invoke_to_string(SYSTEM_PROMPT_REFLECTION, message)
             
             # 处理响应
-            processed_response = self.process_output(response)
+            processed_response = self.process_output(
+                response,
+                fallback_query=_fallback_query(data, "缺失信息补充核查"),
+            )
             
             logger.info(f"反思生成搜索查询: {processed_response.get('search_query', 'N/A')}")
             return processed_response
             
         except Exception as e:
             logger.exception(f"反思生成搜索查询失败: {str(e)}")
-            raise e
+            raise
     
-    def process_output(self, output: str) -> Dict[str, str]:
+    def process_output(
+        self,
+        output: str,
+        fallback_query: str = "目的地缺失信息补充核查",
+    ) -> Dict[str, str]:
         """
         处理LLM输出，提取搜索查询和推理
         
@@ -223,55 +251,11 @@ class ReflectionNode(BaseNode):
         Returns:
             包含search_query和reasoning的字典
         """
-        try:
-            # 清理响应文本
-            cleaned_output = remove_reasoning_from_output(output)
-            cleaned_output = clean_json_tags(cleaned_output)
-            
-            # 记录清理后的输出用于调试
-            logger.info(f"清理后的输出: {cleaned_output}")
-            
-            # 解析JSON
-            try:
-                result = json.loads(cleaned_output)
-                logger.info("JSON解析成功")
-            except JSONDecodeError as e:
-                logger.error(f"JSON解析失败: {str(e)}")
-                # 使用更强大的提取方法
-                result = extract_clean_response(cleaned_output)
-                if "error" in result:
-                    logger.error("JSON解析失败，尝试修复...")
-                    # 尝试修复JSON
-                    fixed_json = fix_incomplete_json(cleaned_output)
-                    if fixed_json:
-                        try:
-                            result = json.loads(fixed_json)
-                            logger.info("JSON修复成功")
-                        except JSONDecodeError:
-                            logger.error("JSON修复失败")
-                            # 返回默认查询
-                            return self._get_default_reflection_query()
-                    else:
-                        logger.error("无法修复JSON，使用默认查询")
-                        return self._get_default_reflection_query()
-            
-            # 验证和清理结果
-            search_query = result.get("search_query", "")
-            reasoning = result.get("reasoning", "")
-            
-            if not search_query:
-                logger.warning("未找到搜索查询，使用默认查询")
-                return self._get_default_reflection_query()
-            
-            return {
-                "search_query": search_query,
-                "reasoning": reasoning
-            }
-            
-        except Exception as e:
-            logger.exception(f"处理输出失败: {str(e)}")
-            # 返回默认查询
-            return self._get_default_reflection_query()
+        return _parse_search_plan(
+            output,
+            fallback_query,
+            "LLM反思计划无效，改用行程上下文补充核查",
+        )
     
     def _get_default_reflection_query(self) -> Dict[str, str]:
         """
@@ -281,6 +265,7 @@ class ReflectionNode(BaseNode):
             默认的反思搜索查询字典
         """
         return {
-            "search_query": "深度研究补充信息",
+            "search_query": "目的地缺失信息补充核查",
+            "search_tool": "basic_search_news",
             "reasoning": "由于解析失败，使用默认反思搜索查询"
         }

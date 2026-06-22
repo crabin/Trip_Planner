@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1782032181425,
+  "lastScanned": 1782128050868,
   "projectRoot": "/Users/lpb/workspace/myProjects/Trip_Planner",
   "techStack": {
     "languages": [],
@@ -36,14 +36,14 @@
       "path": "assets",
       "purpose": "Static assets",
       "fileCount": 0,
-      "lastAccessed": 1782032181410,
+      "lastAccessed": 1782128050848,
       "keyFiles": []
     },
     "backend": {
       "path": "backend",
       "purpose": null,
       "fileCount": 9,
-      "lastAccessed": 1782032181410,
+      "lastAccessed": 1782128050848,
       "keyFiles": [
         "README.md",
         "main.py",
@@ -55,18 +55,19 @@
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 2,
-      "lastAccessed": 1782032181411,
+      "fileCount": 3,
+      "lastAccessed": 1782128050851,
       "keyFiles": [
         "rag-build-and-evaluation-plan.md",
-        "trip-generate-flow.md"
+        "trip-generate-flow.md",
+        "手把手教你制作旅行攻略.md"
       ]
     },
     "frontend": {
       "path": "frontend",
       "purpose": null,
       "fileCount": 10,
-      "lastAccessed": 1782032181412,
+      "lastAccessed": 1782128050851,
       "keyFiles": [
         "README.md",
         "index.html",
@@ -79,7 +80,7 @@
       "path": "backend/app",
       "purpose": "Application code",
       "fileCount": 3,
-      "lastAccessed": 1782032181412,
+      "lastAccessed": 1782128050852,
       "keyFiles": [
         "__init__.py",
         "config.py"
@@ -89,7 +90,7 @@
       "path": "frontend/dist",
       "purpose": "Distribution/build output",
       "fileCount": 1,
-      "lastAccessed": 1782032181413,
+      "lastAccessed": 1782128050853,
       "keyFiles": [
         "index.html"
       ]
@@ -98,7 +99,7 @@
       "path": "frontend/node_modules",
       "purpose": "Dependencies",
       "fileCount": 2,
-      "lastAccessed": 1782032181413,
+      "lastAccessed": 1782128050853,
       "keyFiles": []
     }
   },

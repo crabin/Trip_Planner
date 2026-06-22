@@ -1,24 +1,25 @@
 """
-专为 AI Agent 设计的舆情搜索工具集 (Tavily)
+专为目的地旅行研究 Agent 设计的网页搜索工具集 (Tavily)
 
 版本: 1.5
 最后更新: 2025-08-22
 
 此脚本将复杂的Tavily搜索功能分解为一系列目标明确、参数极少的独立工具，
 专为AI Agent调用而设计。Agent只需根据任务意图选择合适的工具，
-无需理解复杂的参数组合。所有工具默认搜索“新闻”(topic='news')。
+无需理解复杂的参数组合。历史方法名保留 `_news` 以兼容现有调用，
+底层统一使用通用网页搜索 (`topic='general'`)。
 
 新特性:
-- 新增 `basic_search_news` 工具，用于执行标准、通用的新闻搜索。
-- 每个搜索结果现在都包含 `published_date` (新闻发布日期)。
+- `basic_search_news` 用于执行标准、通用的网页搜索。
+- 每个搜索结果包含 `published_date`（来源发布日期）。
 
 主要工具:
-- basic_search_news: (新增) 执行标准、快速的通用新闻搜索。
-- deep_search_news: 对主题进行最全面的深度分析。
-- search_news_last_24_hours: 获取24小时内的最新动态。
-- search_news_last_week: 获取过去一周的主要报道。
-- search_images_for_news: 查找与新闻主题相关的图片。
-- search_news_by_date: 在指定的历史日期范围内搜索。
+- basic_search_news: 标准、快速的通用网页搜索。
+- deep_search_news: 对旅行主题进行高级深度研究。
+- search_news_last_24_hours: 获取24小时内的关闭、预警等动态。
+- search_news_last_week: 获取过去一周的目的地动态。
+- search_images_for_news: 查找目的地、景点或地图相关图片。
+- search_news_by_date: 按来源发布日期范围搜索公告。
 """
 
 import os
@@ -112,9 +113,9 @@ class TavilyNewsAgency:
 
             search_results = [
                 SearchResult(
-                    title=item.get('title'),
-                    url=item.get('url'),
-                    content=item.get('content'),
+                    title=str(item.get('title') or ''),
+                    url=str(item.get('url') or ''),
+                    content=str(item.get('content') or ''),
                     score=item.get('score'),
                     raw_content=item.get('raw_content'),
                     published_date=item.get('published_date')
@@ -124,13 +125,14 @@ class TavilyNewsAgency:
             image_results = [ImageResult(url=item.get('url'), description=item.get('description')) for item in response_dict.get('images', [])]
 
             return TavilyResponse(
-                query=response_dict.get('query'), answer=response_dict.get('answer'),
+                query=str(response_dict.get('query') or kwargs.get('query') or ''),
+                answer=response_dict.get('answer'),
                 results=search_results, images=image_results,
                 response_time=response_dict.get('response_time')
             )
-        except Exception as e:
+        except Exception:
             logger.exception("搜索时发生错误")
-            raise e  # 让重试机制捕获并处理
+            raise  # 让重试机制捕获并处理
 
     # --- Agent 可用的工具方法 ---
 

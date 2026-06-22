@@ -4,9 +4,11 @@ Deep Search Agent主类
 """
 
 import os
+from pathlib import Path
 import re
 from datetime import datetime
 from typing import Optional, Dict, Any
+from uuid import uuid4
 
 from .llms import LLMClient
 from .nodes import (
@@ -21,6 +23,17 @@ from .state import State
 from .tools import TavilyNewsAgency, TavilyResponse
 from .utils import Settings, format_search_results_for_prompt
 from loguru import logger
+
+
+def _write_text_atomic(path: Path, content: str) -> None:
+    """Write a text artifact without exposing a truncated destination file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(content, encoding="utf-8")
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 class DestinationIntelligenceAgent:
     """Destination Intelligence Agent主类"""
@@ -102,12 +115,12 @@ class DestinationIntelligenceAgent:
         
         Args:
             tool_name: 工具名称，可选值：
-                - "basic_search_news": 基础新闻搜索（快速、通用）
-                - "deep_search_news": 深度新闻分析
-                - "search_news_last_24_hours": 24小时内最新新闻
-                - "search_news_last_week": 本周新闻
-                - "search_images_for_news": 新闻图片搜索
-                - "search_news_by_date": 按日期范围搜索新闻
+                - "basic_search_news": 基础网页搜索（历史兼容名称）
+                - "deep_search_news": 深度网页研究
+                - "search_news_last_24_hours": 24小时内最新信息
+                - "search_news_last_week": 本周最新信息
+                - "search_images_for_news": 目的地图片搜索
+                - "search_news_by_date": 按来源发布日期搜索信息
             query: 搜索查询
             **kwargs: 额外参数（如start_date, end_date, max_results）
             
@@ -139,7 +152,7 @@ class DestinationIntelligenceAgent:
     
     def research(self, query: str, save_report: bool = True) -> str:
         """
-        执行深度研究
+        生成一份目标日期明确的目的地旅行攻略
         
         Args:
             query: 研究查询
@@ -179,7 +192,7 @@ class DestinationIntelligenceAgent:
             import traceback
             error_traceback = traceback.format_exc()
             logger.error(f"研究过程中发生错误: {str(e)} \n错误堆栈: {error_traceback}")
-            raise e
+            raise
     
     def _generate_report_structure(self, query: str):
         """生成报告结构"""
@@ -437,25 +450,30 @@ class DestinationIntelligenceAgent:
     def _save_report(self, report_content: str):
         """保存报告到文件"""
         # 生成文件名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         query_safe = "".join(c for c in self.state.query if c.isalnum() or c in (' ', '-', '_')).rstrip()
         query_safe = query_safe.replace(' ', '_')[:30]
-        
+        output_dir = Path(self.config.OUTPUT_DIR)
+
         filename = f"travel_guide_{query_safe}_{timestamp}.md"
-        filepath = os.path.join(self.config.OUTPUT_DIR, filename)
-        
-        # 保存报告
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(report_content)
+        filepath = output_dir / filename
+
+        _write_text_atomic(filepath, report_content)
         
         logger.info(f"报告已保存到: {filepath}")
         
         # 保存状态（如果配置允许）
         if self.config.SAVE_INTERMEDIATE_STATES:
             state_filename = f"state_{query_safe}_{timestamp}.json"
-            state_filepath = os.path.join(self.config.OUTPUT_DIR, state_filename)
-            self.state.save_to_file(state_filepath)
-            logger.info(f"状态已保存到: {state_filepath}")
+            state_filepath = output_dir / state_filename
+            try:
+                self.state.save_to_file(state_filepath)
+                logger.info(f"状态已保存到: {state_filepath}")
+            except Exception:
+                logger.exception(
+                    "中间状态保存失败，但旅行攻略已成功保存到: {}",
+                    filepath,
+                )
     
     def get_progress_summary(self) -> Dict[str, Any]:
         """获取进度摘要"""

@@ -6,7 +6,9 @@ destination_intelligence_agent 状态管理
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 
 @dataclass
@@ -252,14 +254,27 @@ class State:
         """从JSON字符串创建State对象"""
         data = json.loads(json_str)
         return cls.from_dict(data)
-    
-    def save_to_file(self, filepath: str):
-        """保存状态到文件"""
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(self.to_json())
+
+    def to_json(self) -> str:
+        """将完整状态序列化为可读的 UTF-8 JSON。"""
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
+
+    def save_to_file(self, filepath: str | Path) -> None:
+        """原子保存状态，序列化或写入失败时不破坏已有文件。"""
+        serialized = self.to_json()
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+
+        try:
+            temporary_path.write_text(serialized, encoding="utf-8")
+            temporary_path.replace(path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
     @classmethod
-    def load_from_file(cls, file_path: str) -> "State":
+    def load_from_file(cls, file_path: str | Path) -> "State":
         """从文件加载State对象"""
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with Path(file_path).open("r", encoding="utf-8") as f:
             data = json.load(f)
         return cls.from_dict(data)

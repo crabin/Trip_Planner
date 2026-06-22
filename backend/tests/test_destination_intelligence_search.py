@@ -1,6 +1,7 @@
 from pathlib import Path
 import runpy
 
+from app.agents.destination_intelligence_agent.tools.search import TavilyNewsAgency
 from app.agents.destination_intelligence_agent.utils.retry_helper import (
     RetryConfig,
     with_graceful_retry,
@@ -52,3 +53,29 @@ def test_with_graceful_retry_returns_successful_retry() -> None:
 
     assert succeeds_on_second_attempt() == "ok"
     assert attempts == 2
+
+
+def test_search_normalizes_missing_provider_fields_to_strings() -> None:
+    class FakeClient:
+        def search(self, **kwargs):
+            return {
+                "query": None,
+                "results": [
+                    {
+                        "title": None,
+                        "url": None,
+                        "content": None,
+                        "raw_content": None,
+                    }
+                ],
+            }
+
+    agency = object.__new__(TavilyNewsAgency)
+    agency._client = FakeClient()
+
+    response = agency._search_internal(query="厦门旅行")
+
+    assert response.query == "厦门旅行"
+    assert response.results[0].title == ""
+    assert response.results[0].url == ""
+    assert response.results[0].content == ""

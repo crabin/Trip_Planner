@@ -62,7 +62,7 @@ class ReportStructureNode(StateMutationNode):
             
         except Exception as e:
             logger.exception(f"生成报告结构失败: {str(e)}")
-            raise e
+            raise
     
     def process_output(self, output: str) -> List[Dict[str, str]]:
         """
@@ -80,7 +80,7 @@ class ReportStructureNode(StateMutationNode):
             cleaned_output = clean_json_tags(cleaned_output)
             
             # 记录清理后的输出用于调试
-            logger.info(f"清理后的输出: {cleaned_output}")
+            logger.debug("已清理攻略结构输出，长度: {}", len(cleaned_output))
             
             # 解析JSON
             try:
@@ -220,4 +220,4 @@ class ReportStructureNode(StateMutationNode):
             
         except Exception as e:
             logger.exception(f"状态更新失败: {str(e)}")
-            raise e
+            raise

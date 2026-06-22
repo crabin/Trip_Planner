@@ -4,7 +4,10 @@ from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 import sys
+import time
 from typing import Any, Optional
+
+from loguru import logger
 
 if not __package__:
     backend_dir = Path(__file__).resolve().parents[4]
@@ -32,6 +35,8 @@ class LLMClient:
         self.base_url = base_url
         self.provider = model_name
         self.timeout = float(config.LLM_TIMEOUT_SECONDS)
+        self.max_retries = max(0, int(config.LLM_MAX_RETRIES))
+        self.retry_delay = 1.0
         self.client = self.build_chat_llm()
 
     def build_chat_llm(self) -> Any:
@@ -48,7 +53,7 @@ class LLMClient:
             api_key=self.api_key,
             base_url=self.base_url or None,
             timeout=self.timeout,
-            max_retries=config.LLM_MAX_RETRIES,
+            max_retries=self.max_retries,
         )
 
     def invoke(self, system_prompt: str, user_prompt: str, **kwargs: Any) -> str:
@@ -102,7 +107,52 @@ class LLMClient:
         **kwargs: Any,
     ) -> str:
         """Consume a streaming response and return one complete string."""
-        return "".join(self.stream_invoke(system_prompt, user_prompt, **kwargs))
+        for retry_index in range(self.max_retries + 1):
+            try:
+                return "".join(
+                    self.stream_invoke(system_prompt, user_prompt, **kwargs)
+                )
+            except Exception as exc:
+                retries_exhausted = retry_index >= self.max_retries
+                if retries_exhausted or not self._is_retryable_stream_error(exc):
+                    raise
+
+                retry_number = retry_index + 1
+                delay = min(self.retry_delay * (2**retry_index), 4.0)
+                logger.warning(
+                    "LLM流式响应暂时失败（{}），将在{:.1f}秒后重试 {}/{}",
+                    type(exc).__name__,
+                    delay,
+                    retry_number,
+                    self.max_retries,
+                )
+                if delay:
+                    time.sleep(delay)
+
+        raise RuntimeError("LLM流式响应重试循环异常退出")
+
+    @staticmethod
+    def _is_retryable_stream_error(error: Exception) -> bool:
+        """Return whether an OpenAI-compatible streaming failure is transient."""
+        try:
+            from openai import (
+                APIConnectionError,
+                APIError,
+                APIStatusError,
+                APITimeoutError,
+                RateLimitError,
+            )
+        except ImportError:
+            return False
+
+        if isinstance(error, APIStatusError):
+            status_code = error.status_code
+            return status_code in {408, 409, 429} or status_code >= 500
+
+        return isinstance(
+            error,
+            (APIConnectionError, APITimeoutError, RateLimitError, APIError),
+        )
 
     @staticmethod
     def validate_response(response: Optional[str]) -> str:
@@ -125,5 +175,4 @@ class LLMClient:
         time_prefix = f"今天的实际时间是{current_time}"
         human_prompt = f"{time_prefix}\n{user_prompt}" if user_prompt else time_prefix
         return [("system", system_prompt), ("human", human_prompt)]
-
 

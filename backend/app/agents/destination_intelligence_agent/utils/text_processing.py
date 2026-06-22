@@ -5,7 +5,7 @@
 
 import re
 import json
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from json.decoder import JSONDecodeError
 
 
@@ -82,7 +82,7 @@ def remove_reasoning_from_output(text: str) -> str:
     return text.strip()
 
 
-def extract_clean_response(text: str) -> Dict[str, Any]:
+def extract_clean_response(text: str) -> Any:
     """
     提取并清理响应中的JSON内容
     
@@ -129,7 +129,6 @@ def extract_clean_response(text: str) -> Dict[str, Any]:
             pass
     
     # 如果所有方法都失败，返回错误信息
-    print(f"无法解析JSON响应: {cleaned_text[:200]}...")
     return {"error": "JSON解析失败", "raw_text": cleaned_text}
 
 
@@ -154,37 +153,34 @@ def fix_incomplete_json(text: str) -> str:
     except JSONDecodeError:
         pass
     
-    # 检查是否缺少开头的数组符号
-    if text.strip().startswith('{') and not text.strip().startswith('['):
-        # 如果以对象开始，尝试包装成数组
-        if text.count('{') > 1:
-            # 多个对象，包装成数组
-            text = '[' + text + ']'
-        else:
-            # 单个对象，包装成数组
-            text = '[' + text + ']'
-    
-    # 检查是否缺少结尾的数组符号
-    if text.strip().endswith('}') and not text.strip().endswith(']'):
-        # 如果以对象结束，尝试包装成数组
-        if text.count('}') > 1:
-            # 多个对象，包装成数组
-            text = '[' + text + ']'
-        else:
-            # 单个对象，包装成数组
-            text = '[' + text + ']'
-    
-    # 检查括号是否匹配
-    open_braces = text.count('{')
-    close_braces = text.count('}')
-    open_brackets = text.count('[')
-    close_brackets = text.count(']')
-    
-    # 修复不匹配的括号
-    if open_braces > close_braces:
-        text += '}' * (open_braces - close_braces)
-    if open_brackets > close_brackets:
-        text += ']' * (open_brackets - close_brackets)
+    # 只补齐缺失的结束括号，保持对象/数组的原始顶层类型。
+    expected_closers: list[str] = []
+    in_string = False
+    escaped = False
+    pairs = {"{": "}", "[": "]"}
+
+    for char in text:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and in_string:
+            escaped = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char in pairs:
+            expected_closers.append(pairs[char])
+        elif char in ("}", "]"):
+            if not expected_closers or expected_closers[-1] != char:
+                return ""
+            expected_closers.pop()
+
+    if in_string:
+        return ""
+    text += "".join(reversed(expected_closers))
     
     # 验证修复后的JSON是否有效
     try:
@@ -212,11 +208,11 @@ def fix_aggressive_json(text: str) -> str:
         # 如果有多个对象，包装成数组
         return '[' + ','.join(objects) + ']'
     elif len(objects) == 1:
-        # 如果只有一个对象，包装成数组
-        return '[' + objects[0] + ']'
+        # 如果只有一个对象，保持对象契约
+        return objects[0]
     else:
-        # 如果没有找到对象，返回空数组
-        return '[]'
+        # 不伪造一个看似有效但没有数据的结构
+        return ''
 
 
 def update_state_with_search_results(search_results: List[Dict[str, Any]], 

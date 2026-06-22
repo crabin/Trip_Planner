@@ -4,7 +4,7 @@
 """
 
 import json
-from typing import Dict, Any, List
+from typing import Any
 from json.decoder import JSONDecodeError
 from loguru import logger
 
@@ -12,23 +12,67 @@ from .base_node import StateMutationNode
 from ..state.state import State
 from ..prompts import SYSTEM_PROMPT_FIRST_SUMMARY, SYSTEM_PROMPT_REFLECTION_SUMMARY
 from ..utils.text_processing import (
-    remove_reasoning_from_output,
     clean_json_tags,
-    extract_clean_response,
     fix_incomplete_json,
-    format_search_results_for_prompt
 )
 
-# 导入论坛读取工具
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-try:
-    from utils.forum_reader import get_latest_host_speech, format_host_speech_for_prompt
-    FORUM_READER_AVAILABLE = True
-except ImportError:
-    FORUM_READER_AVAILABLE = False
-    logger.warning("警告: 无法导入forum_reader模块，将跳过HOST发言读取功能")
+
+def _extract_summary_content(output: str, field_name: str, label: str) -> str:
+    """Extract one summary field without leaking malformed JSON into state."""
+    cleaned_output = clean_json_tags(output).strip()
+    object_start = cleaned_output.find("{")
+    if object_start >= 0:
+        cleaned_output = cleaned_output[object_start:].strip()
+    logger.debug("已清理{}输出，长度: {}", label, len(cleaned_output))
+
+    try:
+        result = json.loads(cleaned_output)
+        logger.info("JSON解析成功")
+    except JSONDecodeError as parse_error:
+        # `json.loads` rejects a valid object followed by prose or another value.
+        # `raw_decode` safely returns the first complete JSON value and its end.
+        try:
+            result, end_index = json.JSONDecoder().raw_decode(cleaned_output)
+        except JSONDecodeError:
+            fixed_json = fix_incomplete_json(cleaned_output)
+            if not fixed_json:
+                if cleaned_output.lstrip().startswith(("{", "[")):
+                    logger.warning(
+                        "{}JSON无法解析或修复，拒绝将结构化残片写入总结",
+                        label,
+                    )
+                    return ""
+                logger.warning("{}不是JSON，使用纯文本兜底", label)
+                return cleaned_output.strip()
+
+            try:
+                result = json.loads(fixed_json)
+                logger.info("JSON修复成功")
+            except JSONDecodeError:
+                logger.warning(
+                    "{}JSON修复结果仍无效，拒绝将结构化残片写入总结",
+                    label,
+                )
+                return ""
+        else:
+            trailing_text = cleaned_output[end_index:].strip()
+            logger.warning(
+                "{}包含JSON后的额外内容（{}字符，原错误: {}），已忽略",
+                label,
+                len(trailing_text),
+                parse_error.msg,
+            )
+
+    if not isinstance(result, dict):
+        logger.warning("{}顶层不是JSON对象", label)
+        return ""
+
+    summary = result.get(field_name)
+    if isinstance(summary, str) and summary.strip():
+        return summary.strip()
+
+    logger.warning("{}缺少有效字段: {}", label, field_name)
+    return ""
 
 
 class FirstSummaryNode(StateMutationNode):
@@ -78,24 +122,8 @@ class FirstSummaryNode(StateMutationNode):
             else:
                 data = input_data.copy() if isinstance(input_data, dict) else input_data
             
-            # 读取最新的HOST发言（如果可用）
-            if FORUM_READER_AVAILABLE:
-                try:
-                    host_speech = get_latest_host_speech()
-                    if host_speech:
-                        # 将HOST发言添加到输入数据中
-                        data['host_speech'] = host_speech
-                        logger.info(f"已读取HOST发言，长度: {len(host_speech)}字符")
-                except Exception as e:
-                    logger.exception(f"读取HOST发言失败: {str(e)}")
-            
             # 转换为JSON字符串
             message = json.dumps(data, ensure_ascii=False)
-            
-            # 如果有HOST发言，添加到消息前面作为参考
-            if FORUM_READER_AVAILABLE and 'host_speech' in data and data['host_speech']:
-                formatted_host = format_host_speech_for_prompt(data['host_speech'])
-                message = formatted_host + "\n" + message
             
             logger.info("正在生成首次段落总结")
             
@@ -107,13 +135,15 @@ class FirstSummaryNode(StateMutationNode):
             
             # 处理响应
             processed_response = self.process_output(response)
+            if not processed_response:
+                raise ValueError("首次总结响应不符合 paragraph_latest_state 输出契约")
             
             logger.info("成功生成首次段落总结")
             return processed_response
             
         except Exception as e:
             logger.exception(f"生成首次总结失败: {str(e)}")
-            raise e
+            raise
     
     def process_output(self, output: str) -> str:
         """
@@ -125,47 +155,11 @@ class FirstSummaryNode(StateMutationNode):
         Returns:
             段落内容
         """
-        try:
-            # 清理响应文本
-            cleaned_output = remove_reasoning_from_output(output)
-            cleaned_output = clean_json_tags(cleaned_output)
-            
-            # 记录清理后的输出用于调试
-            logger.info(f"清理后的输出: {cleaned_output}")
-            
-            # 解析JSON
-            try:
-                result = json.loads(cleaned_output)
-                logger.info("JSON解析成功")
-            except JSONDecodeError as e:
-                logger.error(f"JSON解析失败: {str(e)}")
-                # 尝试修复JSON
-                fixed_json = fix_incomplete_json(cleaned_output)
-                if fixed_json:
-                    try:
-                        result = json.loads(fixed_json)
-                        logger.info("JSON修复成功")
-                    except JSONDecodeError:
-                        logger.error("JSON修复失败，直接使用清理后的文本")
-                        # 如果不是JSON格式，直接返回清理后的文本
-                        return cleaned_output
-                else:
-                    logger.error("无法修复JSON，直接使用清理后的文本")
-                    # 如果不是JSON格式，直接返回清理后的文本
-                    return cleaned_output
-            
-            # 提取段落内容
-            if isinstance(result, dict):
-                paragraph_content = result.get("paragraph_latest_state", "")
-                if paragraph_content:
-                    return paragraph_content
-            
-            # 如果提取失败，返回原始清理后的文本
-            return cleaned_output
-            
-        except Exception as e:
-            logger.exception(f"处理输出失败: {str(e)}")
-            return "段落总结生成失败"
+        return _extract_summary_content(
+            output,
+            "paragraph_latest_state",
+            "首次总结",
+        )
     
     def mutate_state(self, input_data: Any, state: State, paragraph_index: int, **kwargs) -> State:
         """
@@ -196,7 +190,7 @@ class FirstSummaryNode(StateMutationNode):
             
         except Exception as e:
             logger.exception(f"状态更新失败: {str(e)}")
-            raise e
+            raise
 
 
 class ReflectionSummaryNode(StateMutationNode):
@@ -246,24 +240,8 @@ class ReflectionSummaryNode(StateMutationNode):
             else:
                 data = input_data.copy() if isinstance(input_data, dict) else input_data
             
-            # 读取最新的HOST发言（如果可用）
-            if FORUM_READER_AVAILABLE:
-                try:
-                    host_speech = get_latest_host_speech()
-                    if host_speech:
-                        # 将HOST发言添加到输入数据中
-                        data['host_speech'] = host_speech
-                        logger.info(f"已读取HOST发言，长度: {len(host_speech)}字符")
-                except Exception as e:
-                    logger.exception(f"读取HOST发言失败: {str(e)}")
-            
             # 转换为JSON字符串
             message = json.dumps(data, ensure_ascii=False)
-            
-            # 如果有HOST发言，添加到消息前面作为参考
-            if FORUM_READER_AVAILABLE and 'host_speech' in data and data['host_speech']:
-                formatted_host = format_host_speech_for_prompt(data['host_speech'])
-                message = formatted_host + "\n" + message
             
             logger.info("正在生成反思总结")
             
@@ -275,13 +253,16 @@ class ReflectionSummaryNode(StateMutationNode):
             
             # 处理响应
             processed_response = self.process_output(response)
+            if not processed_response:
+                processed_response = str(data["paragraph_latest_state"])
+                logger.warning("反思总结响应无效，保留上一版段落总结")
             
             logger.info("成功生成反思总结")
             return processed_response
             
         except Exception as e:
             logger.exception(f"生成反思总结失败: {str(e)}")
-            raise e
+            raise
     
     def process_output(self, output: str) -> str:
         """
@@ -293,47 +274,11 @@ class ReflectionSummaryNode(StateMutationNode):
         Returns:
             更新后的段落内容
         """
-        try:
-            # 清理响应文本
-            cleaned_output = remove_reasoning_from_output(output)
-            cleaned_output = clean_json_tags(cleaned_output)
-            
-            # 记录清理后的输出用于调试
-            logger.info(f"清理后的输出: {cleaned_output}")
-            
-            # 解析JSON
-            try:
-                result = json.loads(cleaned_output)
-                logger.info("JSON解析成功")
-            except JSONDecodeError as e:
-                logger.error(f"JSON解析失败: {str(e)}")
-                # 尝试修复JSON
-                fixed_json = fix_incomplete_json(cleaned_output)
-                if fixed_json:
-                    try:
-                        result = json.loads(fixed_json)
-                        logger.info("JSON修复成功")
-                    except JSONDecodeError:
-                        logger.error("JSON修复失败，直接使用清理后的文本")
-                        # 如果不是JSON格式，直接返回清理后的文本
-                        return cleaned_output
-                else:
-                    logger.error("无法修复JSON，直接使用清理后的文本")
-                    # 如果不是JSON格式，直接返回清理后的文本
-                    return cleaned_output
-            
-            # 提取更新后的段落内容
-            if isinstance(result, dict):
-                updated_content = result.get("updated_paragraph_latest_state", "")
-                if updated_content:
-                    return updated_content
-            
-            # 如果提取失败，返回原始清理后的文本
-            return cleaned_output
-            
-        except Exception as e:
-            logger.exception(f"处理输出失败: {str(e)}")
-            return "反思总结生成失败"
+        return _extract_summary_content(
+            output,
+            "updated_paragraph_latest_state",
+            "反思总结",
+        )
     
     def mutate_state(self, input_data: Any, state: State, paragraph_index: int, **kwargs) -> State:
         """
@@ -365,4 +310,4 @@ class ReflectionSummaryNode(StateMutationNode):
             
         except Exception as e:
             logger.exception(f"状态更新失败: {str(e)}")
-            raise e
+            raise

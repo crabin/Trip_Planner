@@ -52,6 +52,8 @@ def test_prompts_define_a_complete_time_aware_travel_guide() -> None:
     ]
     assert all(section in SYSTEM_PROMPT_REPORT_FORMATTING for section in required_final_sections)
     assert "新闻分析报告" not in SYSTEM_PROMPT_REPORT_FORMATTING
+    assert "不得包含追问" in SYSTEM_PROMPT_REPORT_FORMATTING
+    assert "下一步" in SYSTEM_PROMPT_REPORT_FORMATTING
 
 
 def test_default_outline_covers_the_five_guide_workstreams() -> None:
@@ -122,7 +124,36 @@ def test_search_state_preserves_source_publication_date() -> None:
 
 
 def test_report_formatter_accepts_context_contract_and_legacy_sections() -> None:
-    llm = FakeLLM()
+    complete_guide = """# 京都旅行攻略
+
+## 行前先做
+确认车票、住宿与预约。
+
+## 每日行程
+D1 抵达京都。
+
+## 交通与住宿方案
+使用公共交通，住宿选择京都站附近。
+
+## 景点、餐饮与备选池
+主选清水寺，雨天备选京都国立博物馆。
+
+## 行李检查清单
+- [ ] 证件与充电器
+
+## 预算
+按交通、住宿、餐饮和门票分类预留。
+
+## 实用提示与风险预案
+高温时减少正午步行。
+
+## 出发前一致性检查
+- [ ] 日期与晚数一致
+
+## 资料来源与更新说明
+出发前复核官方信息。
+"""
+    llm = FakeLLM(complete_guide)
     node = ReportFormattingNode(llm)
     sections = [{"title": "逐日行程", "paragraph_latest_state": "D1 抵达"}]
     guide_input = {

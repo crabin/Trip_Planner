@@ -8,7 +8,7 @@ destination_intelligence_agent 配置类
 
 
 from pathlib import Path
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from typing import Optional
 
@@ -26,13 +26,29 @@ class Settings(BaseSettings):
     """
     
     # ================== LLM 配置 ====================
-    DESTINATION_INTELLIGENCE_AGENT_API_KEY: str = Field(...,  description="API key for the destination intelligence agent's LLM.")
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_prefix="",
+        case_sensitive=False,
+        extra="ignore",
+        env_file_encoding="utf-8",
+    )
+
+    DESTINATION_INTELLIGENCE_AGENT_API_KEY: str = Field(
+        ...,
+        description="API key for the destination intelligence agent's LLM.",
+        repr=False,
+    )
     DESTINATION_INTELLIGENCE_AGENT_BASE_URL: Optional[str] = Field(None,  description="Base URL for the destination intelligence agent's LLM API.")
     DESTINATION_INTELLIGENCE_AGENT_MODEL_NAME: str = Field(..., description="Model name for the destination intelligence agent's LLM.")
     DESTINATION_INTELLIGENCE_AGENT_PROVIDER: Optional[str] = Field(None, description="LLM provider for the destination intelligence agent (e.g., 'openai', 'azure').")
 
     # ================== 网络工具配置 ====================
-    TAVILY_API_KEY: str = Field(..., description="Tavily API（申请地址：https://www.tavily.com/）API密钥，用于Tavily网络搜索")
+    TAVILY_API_KEY: str = Field(
+        ...,
+        description="Tavily API（申请地址：https://www.tavily.com/）API密钥，用于Tavily网络搜索",
+        repr=False,
+    )
 
     # ================== 搜索参数配置 ====================
     SEARCH_TIMEOUT: int = Field(240, description="搜索超时（秒）")
@@ -44,14 +60,6 @@ class Settings(BaseSettings):
     # ================== 输出配置 ====================
     OUTPUT_DIR: str = Field("reports", description="输出目录")
     SAVE_INTERMEDIATE_STATES: bool = Field(True, description="是否保存中间状态")
-    
-    class Config:
-        env_file = ENV_FILE
-        env_prefix = ""
-        case_sensitive = False
-        extra = "allow"
-        env_file_encoding = 'utf-8'
-        
     
 # 创建全局配置实例
 settings = Settings()

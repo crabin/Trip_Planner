@@ -28,6 +28,19 @@
 - Final targeted ruff passed and focused destination-intelligence suite passed with 17 tests.
 - Final full backend suite passed: 89 tests, 14 existing deprecation warnings.
 - Completed the output-contract audit against the tutorial and linked templates. All seven phases are complete; no live paid-provider run was performed.
+- Resumed the completed plan for final-output repair (Phases 8-11) while preserving the uncommitted persistence/security/search-contract fixes from the prior review.
+- Diagnosed the Xiamen guide truncation without editing code: Markdown was incorrectly passed through a JSON cleaner and cut at the first `[ ]` checkbox. Confirmed with an exact minimal reproduction.
+- Confirmed the conversational “如果你愿意…” ending is model-generated, enabled by a missing prompt prohibition and missing final-document contract validation.
+- Added four regression assertions for checkbox-safe Markdown preservation, conversational-tail removal, required-section validation, and explicit final-prompt prohibition.
+- Red verification behaved as expected: all four failed on the current implementation. Phase 9 complete; Phase 10 implementation started.
+- Replaced JSON-oriented final-output cleanup with Markdown-safe extraction, preserving headings, checkboxes, tables, links, braces, and brackets.
+- Added a nine-section final-guide validator, conversational-tail removal, explicit prompt prohibitions, and one corrective LLM retry when the first draft violates the document contract.
+- Updated the old formatter input-contract test to return a valid complete guide instead of weakening production validation. Focused formatter/guide tests now pass: 20 tests.
+- Completed Phase 10 and started the full verification and representative-output audit.
+- Removed noisy exception logging from expected formatter contract failures; the retry remains visible as a concise warning without an ERROR traceback.
+- Representative audit confirmed the original truncated Xiamen artifact is now rejected for missing eight required sections.
+- Final verification passed: targeted ruff, agent compileall, 20 formatter/guide tests, 32 focused destination-intelligence tests, full backend suite (104 passed, 13 existing warnings), and `git diff --check`.
+- Completed Phase 11. All repair phases are complete; no paid live LLM/Tavily generation was performed.
 
 ## 2026-06-15
 

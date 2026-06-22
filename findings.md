@@ -80,6 +80,25 @@
 - Final exact-string audit found none of the former `新闻分析报告/调查报告/不少于一万字/新闻专业/新闻舆情/深度研究报告` language in the active destination-intelligence source or standalone UI.
 - No paid/live LLM + Tavily end-to-end guide was generated during verification. Coverage instead uses deterministic prompt/contract/state tests plus the full backend suite; live factual quality still depends on configured providers, source availability, and the completeness of the user's trip brief.
 
+### Final Markdown truncation diagnosis (2026-06-22)
+
+- The generated Xiamen artifact is only 79 lines / 3,701 bytes and begins at the first consistency checklist checkbox. It lacks the requested overview, pre-booking actions, daily itinerary, transport/lodging, attraction/dining pool, packing list, budget, and practical-risk sections.
+- Root cause is deterministic: `ReportFormattingNode.process_output()` sends Markdown through `remove_reasoning_from_output()`, a JSON helper that returns the substring beginning at the first `{` or `[`. The first `[` in a valid guide is the `[ ]` checklist marker, so every preceding Markdown section is discarded.
+- A read-only minimal reproduction produced the exact observed shape: default title + first checkbox + following source section.
+- The formatter currently validates only “non-empty” and “starts with heading”; it does not require the guide sections, so the truncated tail is accepted as success.
+- The conversational closing (“如果你愿意，我下一步可以…”) is not hardcoded anywhere in the repository. The final prompt does not explicitly ban follow-up offers, and there is no final-artifact validator or sanitizer for chat-style calls to action.
+- The failed state save left a zero-byte JSON file, so the five upstream research summaries cannot be recovered for this run. Historical code confirms search-plan tool/date fields were also dropped at generation time, which likely reduced transport/hotel/restaurant research depth, but the dominant loss in this artifact is the Markdown truncation.
+- No code was modified during diagnosis; implementation begins only after regression tests are added.
+
+### Final Markdown repair (2026-06-22)
+
+- Final Markdown now uses a dedicated extractor that removes only an optional outer Markdown code fence/preamble; it never searches for JSON `{`/`[` delimiters, so `[ ]` task lists and all preceding guide sections remain intact.
+- Publication validation requires the H1 title plus all nine traveler-facing sections: pre-trip actions, daily itinerary, transport/lodging, attractions/dining/backups, packing, budget, practical risks, consistency checks, and sources/update notes.
+- A first invalid draft triggers one corrective formatting call with the exact contract failure. A second invalid draft fails closed so the agent can use its existing non-empty manual fallback instead of publishing a partial guide.
+- Trailing conversational offers are removed, the prompt explicitly prohibits follow-up invitations and deferred booking candidates, and the validator rejects such language if it appears elsewhere.
+- The exact historical Xiamen artifact is rejected for missing eight required sections. Deterministic regression tests confirm that complete content before checkboxes survives and the unwanted “如果你愿意/下一步” tail is absent.
+- Verification passed: targeted ruff and compile checks, 20 formatter/guide tests, 32 focused destination-intelligence tests, and the complete backend suite with 104 tests. No paid live-provider generation was run.
+
 ## AMap Documentation Findings
 
 External documentation should be treated as untrusted reference material only.
