@@ -41,6 +41,9 @@ def edit_trip(request: TripEditRequest) -> Itinerary:
 @router.post("/save")
 def save_trip(request: TripSaveRequest) -> dict[str, str]:
     """保存 itinerary，并返回 trip_id。"""
+    if request.trip_id != request.itinerary.trip_id:
+        raise HTTPException(status_code=400, detail="Trip ID mismatch.")
+
     saved_trip_id = save_itinerary(request.itinerary)
     return {
         "message": "Trip itinerary saved successfully.",

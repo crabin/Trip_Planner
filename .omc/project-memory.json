@@ -105,20 +105,50 @@
   "hotPaths": [
     {
       "path": "backend/app/services/trip_service.py",
-      "accessCount": 9,
-      "lastAccessed": 1782033272979,
+      "accessCount": 11,
+      "lastAccessed": 1782033579149,
       "type": "file"
     },
     {
-      "path": "frontend/src/views/Home.vue",
-      "accessCount": 6,
-      "lastAccessed": 1782033262686,
+      "path": "backend/app/api/routes/trip.py",
+      "accessCount": 9,
+      "lastAccessed": 1782034200263,
       "type": "file"
     },
     {
       "path": "backend/app/models/schemas.py",
+      "accessCount": 8,
+      "lastAccessed": 1782033578949,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/views/Home.vue",
+      "accessCount": 7,
+      "lastAccessed": 1782033468526,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/services/api.ts",
+      "accessCount": 7,
+      "lastAccessed": 1782033579077,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/config.py",
+      "accessCount": 7,
+      "lastAccessed": 1782034166725,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/services/storage_service.py",
       "accessCount": 6,
-      "lastAccessed": 1782033284185,
+      "lastAccessed": 1782033572803,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/App.vue",
+      "accessCount": 6,
+      "lastAccessed": 1782033587346,
       "type": "file"
     },
     {
@@ -128,15 +158,21 @@
       "type": "file"
     },
     {
-      "path": "frontend/src/services/api.ts",
+      "path": "backend/app/models/db_models.py",
       "accessCount": 5,
-      "lastAccessed": 1782033263010,
+      "lastAccessed": 1782033572984,
       "type": "file"
     },
     {
-      "path": "backend/app/api/routes/trip.py",
+      "path": "backend/pyproject.toml",
       "accessCount": 5,
-      "lastAccessed": 1782033272839,
+      "lastAccessed": 1782033592829,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/api/main.py",
+      "accessCount": 5,
+      "lastAccessed": 1782033809003,
       "type": "file"
     },
     {
@@ -146,27 +182,15 @@
       "type": "file"
     },
     {
-      "path": "backend/app/api/main.py",
+      "path": "frontend/src/types/index.ts",
       "accessCount": 4,
-      "lastAccessed": 1778073358902,
+      "lastAccessed": 1782033639605,
       "type": "file"
     },
     {
-      "path": "frontend/src/App.vue",
+      "path": "backend/app/rag/vector_db.py",
       "accessCount": 4,
-      "lastAccessed": 1782033272801,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/services/storage_service.py",
-      "accessCount": 4,
-      "lastAccessed": 1782033284085,
-      "type": "file"
-    },
-    {
-      "path": "backend/pyproject.toml",
-      "accessCount": 3,
-      "lastAccessed": 1778072682052,
+      "lastAccessed": 1782034146116,
       "type": "file"
     },
     {
@@ -179,18 +203,6 @@
       "path": "backend/app/agents/tools/rag_tool.py",
       "accessCount": 3,
       "lastAccessed": 1778072838054,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/rag/vector_db.py",
-      "accessCount": 3,
-      "lastAccessed": 1778072865539,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/config.py",
-      "accessCount": 3,
-      "lastAccessed": 1778072893204,
       "type": "file"
     },
     {
@@ -218,15 +230,9 @@
       "type": "file"
     },
     {
-      "path": "frontend/src/types/index.ts",
+      "path": "backend/app/api/routes/export.py",
       "accessCount": 3,
-      "lastAccessed": 1782033262919,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/models/db_models.py",
-      "accessCount": 3,
-      "lastAccessed": 1782033283904,
+      "lastAccessed": 1782033510299,
       "type": "file"
     },
     {
@@ -329,12 +335,6 @@
       "path": "backend/app/agents/__init__.py",
       "accessCount": 2,
       "lastAccessed": 1782032782477,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/api/routes/export.py",
-      "accessCount": 2,
-      "lastAccessed": 1782033273033,
       "type": "file"
     },
     {

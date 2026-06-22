@@ -8,9 +8,14 @@ BACKEND_DIR = CURRENT_FILE.parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from app.models.db_models import TripRecord  # noqa: E402
 from app.models.schemas import TripRequest  # noqa: E402
-from app.services.storage_service import get_itinerary_by_trip_id, save_itinerary  # noqa: E402
+from app.services.storage_service import (  # noqa: E402
+    get_itinerary_by_trip_id,
+    save_itinerary,
+)
 from app.services.trip_service import generate_trip_itinerary  # noqa: E402
+from app.config import SessionLocal  # noqa: E402
 
 
 def build_trip_request() -> TripRequest:
@@ -53,7 +58,30 @@ def test_get_itinerary_by_trip_id_returns_saved_result() -> None:
     assert len(trip_detail.itinerary.days) == 3
 
 
+def test_save_itinerary_updates_existing_trip_id_without_duplicate() -> None:
+    """测试重复保存同一 trip_id 时只更新原记录，不新增历史卡片。"""
+    itinerary = generate_trip_itinerary(build_trip_request())
+    itinerary.trip_id = f"{itinerary.trip_id}_{uuid.uuid4().hex[:8]}"
+
+    save_itinerary(itinerary)
+    itinerary.summary = "已更新的行程摘要"
+    save_itinerary(itinerary)
+
+    session = SessionLocal()
+    try:
+        records = session.query(TripRecord).filter(TripRecord.trip_id == itinerary.trip_id).all()
+    finally:
+        session.close()
+
+    trip_detail = get_itinerary_by_trip_id(itinerary.trip_id)
+    assert len(records) == 1
+    assert trip_detail is not None
+    assert trip_detail.itinerary.summary == "已更新的行程摘要"
+
+
 def test_get_itinerary_by_trip_id_returns_none_for_missing_trip() -> None:
     """测试查询不存在的 trip_id 时会返回 None。"""
     trip_detail = get_itinerary_by_trip_id("trip_not_exists")
     assert trip_detail is None
+
+

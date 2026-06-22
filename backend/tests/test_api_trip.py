@@ -49,6 +49,15 @@ def test_generate_trip_returns_itinerary_successfully() -> None:
     assert data["budget_breakdown"]["total"] >= 0
 
 
+def test_generate_trip_does_not_add_history_record() -> None:
+    """生成行程只返回草稿，不应隐式加入历史列表。"""
+    generated_itinerary = client.post("/trip/generate", json=build_generate_payload()).json()
+
+    history_ids = {item["trip_id"] for item in client.get("/trip").json()["items"]}
+
+    assert generated_itinerary["trip_id"] not in history_ids
+
+
 def test_generate_trip_rejects_invalid_request() -> None:
     """测试非法请求会被 FastAPI/Pydantic 拦下。"""
     payload = build_generate_payload()
@@ -132,6 +141,24 @@ def test_save_trip_returns_trip_id_successfully() -> None:
     data = response.json()
     assert data["trip_id"] == generated_itinerary["trip_id"]
     assert data["message"] == "Trip itinerary saved successfully."
+
+
+def test_save_trip_rejects_mismatched_trip_id() -> None:
+    """保存请求外层 trip_id 和 itinerary.trip_id 不一致时应拒绝。"""
+    generated_response = client.post("/trip/generate", json=build_generate_payload())
+    generated_itinerary = generated_response.json()
+
+    response = client.post(
+        "/trip/save",
+        json={
+            "trip_id": "trip_mismatch",
+            "itinerary": generated_itinerary,
+            "user_id": "user_001",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Trip ID mismatch."
 
 
 def test_get_trip_detail_returns_saved_itinerary() -> None:

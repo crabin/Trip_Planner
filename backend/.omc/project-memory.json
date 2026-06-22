@@ -167,8 +167,8 @@
     },
     {
       "path": "app/config.py",
-      "accessCount": 10,
-      "lastAccessed": 1777883734282,
+      "accessCount": 12,
+      "lastAccessed": 1782035256388,
       "type": "file"
     },
     {
@@ -196,21 +196,63 @@
       "type": "file"
     },
     {
-      "path": "app/services/trip_service.py",
-      "accessCount": 2,
-      "lastAccessed": 1777883755433,
-      "type": "file"
-    },
-    {
       "path": "app/api/routes/trip.py",
-      "accessCount": 2,
-      "lastAccessed": 1777883803832,
+      "accessCount": 4,
+      "lastAccessed": 1782035256583,
       "type": "file"
     },
     {
       "path": "pyproject.toml",
-      "accessCount": 1,
-      "lastAccessed": 1777880893274,
+      "accessCount": 4,
+      "lastAccessed": 1782035256664,
+      "type": "file"
+    },
+    {
+      "path": "app/services/trip_service.py",
+      "accessCount": 4,
+      "lastAccessed": 1782035301128,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_api_trip.py",
+      "accessCount": 3,
+      "lastAccessed": 1782035256650,
+      "type": "file"
+    },
+    {
+      "path": "app/models/schemas.py",
+      "accessCount": 3,
+      "lastAccessed": 1782035279760,
+      "type": "file"
+    },
+    {
+      "path": "app/api/main.py",
+      "accessCount": 3,
+      "lastAccessed": 1782035279813,
+      "type": "file"
+    },
+    {
+      "path": "tests/conftest.py",
+      "accessCount": 2,
+      "lastAccessed": 1782035256454,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_storage_service.py",
+      "accessCount": 2,
+      "lastAccessed": 1782035256521,
+      "type": "file"
+    },
+    {
+      "path": "app/models/db_models.py",
+      "accessCount": 2,
+      "lastAccessed": 1782035279692,
+      "type": "file"
+    },
+    {
+      "path": "app/services/storage_service.py",
+      "accessCount": 2,
+      "lastAccessed": 1782035279733,
       "type": "file"
     },
     {
@@ -226,33 +268,15 @@
       "type": "file"
     },
     {
-      "path": "app/models/schemas.py",
-      "accessCount": 1,
-      "lastAccessed": 1777883755303,
-      "type": "file"
-    },
-    {
       "path": "app/services/map_service.py",
       "accessCount": 1,
       "lastAccessed": 1777883755460,
       "type": "file"
     },
     {
-      "path": "tests/test_api_trip.py",
-      "accessCount": 1,
-      "lastAccessed": 1777883755563,
-      "type": "file"
-    },
-    {
       "path": "app/agents/trip_planner_agent.py",
       "accessCount": 1,
       "lastAccessed": 1777883803849,
-      "type": "file"
-    },
-    {
-      "path": "app/api/main.py",
-      "accessCount": 1,
-      "lastAccessed": 1777883803889,
       "type": "file"
     }
   ],

@@ -14,7 +14,13 @@ load_dotenv(BACKEND_DIR / ".env")
 DB_DIR = BACKEND_DIR / "db"
 DB_DIR.mkdir(parents=True, exist_ok=True)
 
-SQLITE_DB_PATH = DB_DIR / "app.db"
+_sqlite_db_path_raw = Path(os.getenv("SQLITE_DB_PATH", str(DB_DIR / "app.db")))
+SQLITE_DB_PATH = (
+    _sqlite_db_path_raw
+    if _sqlite_db_path_raw.is_absolute()
+    else BACKEND_DIR / _sqlite_db_path_raw
+)
+SQLITE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = f"sqlite:///{SQLITE_DB_PATH.as_posix()}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
