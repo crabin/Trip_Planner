@@ -3,11 +3,10 @@ Deep Search Agent主类
 整合所有模块，实现完整的深度搜索流程
 """
 
-import json
 import os
 import re
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from .llms import LLMClient
 from .nodes import (
@@ -52,9 +51,9 @@ class DestinationIntelligenceAgent:
         # 确保输出目录存在
         os.makedirs(self.config.OUTPUT_DIR, exist_ok=True)
         
-        logger.info(f"Deep Search Agent已初始化")
+        logger.info("Destination Travel Guide Agent已初始化")
         logger.info(f"使用LLM: {self.llm_client.get_model_info()}")
-        logger.info(f"搜索工具集: TavilyNewsAgency (支持6种搜索工具)")
+        logger.info("搜索工具集: Tavily通用网页研究（支持6种兼容工具）")
     
     def _initialize_llm(self) -> LLMClient:
         """初始化LLM客户端"""
@@ -150,10 +149,13 @@ class DestinationIntelligenceAgent:
             最终报告内容
         """
         logger.info(f"\n{'='*60}")
-        logger.info(f"开始深度研究: {query}")
+        logger.info(f"开始生成目的地旅行攻略: {query}")
         logger.info(f"{'='*60}")
         
         try:
+            # 每次研究都是一份独立攻略，避免复用实例时累积上一次的段落和报告。
+            self.state = State(query=query)
+
             # Step 1: 生成报告结构
             self._generate_report_structure(query)
             
@@ -168,7 +170,7 @@ class DestinationIntelligenceAgent:
                 self._save_report(final_report)
             
             logger.info(f"\n{'='*60}")
-            logger.info("深度研究完成！")
+            logger.info("目的地旅行攻略生成完成！")
             logger.info(f"{'='*60}")
             
             return final_report
@@ -181,7 +183,7 @@ class DestinationIntelligenceAgent:
     
     def _generate_report_structure(self, query: str):
         """生成报告结构"""
-        logger.info(f"\n[步骤 1] 生成报告结构...")
+        logger.info("\n[步骤 1] 生成攻略研究结构...")
         
         # 创建报告结构节点
         report_structure_node = ReportStructureNode(self.llm_client, query)
@@ -220,6 +222,7 @@ class DestinationIntelligenceAgent:
         
         # 准备搜索输入
         search_input = {
+            "trip_context": self.state.query,
             "title": paragraph.title,
             "content": paragraph.content
         }
@@ -251,11 +254,11 @@ class DestinationIntelligenceAgent:
                     search_kwargs["end_date"] = end_date
                     logger.info(f"  - 时间范围: {start_date} 到 {end_date}")
                 else:
-                    logger.info(f"  ⚠️  日期格式错误（应为YYYY-MM-DD），改用基础搜索")
+                    logger.info("  ⚠️  日期格式错误（应为YYYY-MM-DD），改用基础搜索")
                     logger.info(f"      提供的日期: start_date={start_date}, end_date={end_date}")
                     search_tool = "basic_search_news"
             else:
-                logger.info(f"  ⚠️  search_news_by_date工具缺少时间参数，改用基础搜索")
+                logger.info("  ⚠️  search_news_by_date工具缺少时间参数，改用基础搜索")
                 search_tool = "basic_search_news"
         
         search_response = self.execute_search_tool(search_tool, search_query, **search_kwargs)
@@ -289,6 +292,7 @@ class DestinationIntelligenceAgent:
         # 生成初始总结
         logger.info("  - 生成初始总结...")
         summary_input = {
+            "trip_context": self.state.query,
             "title": paragraph.title,
             "content": paragraph.content,
             "search_query": search_query,
@@ -313,6 +317,7 @@ class DestinationIntelligenceAgent:
             
             # 准备反思输入
             reflection_input = {
+                "trip_context": self.state.query,
                 "title": paragraph.title,
                 "content": paragraph.content,
                 "paragraph_latest_state": paragraph.research.latest_summary
@@ -342,11 +347,11 @@ class DestinationIntelligenceAgent:
                         search_kwargs["end_date"] = end_date
                         logger.info(f"    时间范围: {start_date} 到 {end_date}")
                     else:
-                        logger.info(f"    ⚠️  日期格式错误（应为YYYY-MM-DD），改用基础搜索")
+                        logger.info("    ⚠️  日期格式错误（应为YYYY-MM-DD），改用基础搜索")
                         logger.info(f"        提供的日期: start_date={start_date}, end_date={end_date}")
                         search_tool = "basic_search_news"
                 else:
-                    logger.info(f"    ⚠️  search_news_by_date工具缺少时间参数，改用基础搜索")
+                    logger.info("    ⚠️  search_news_by_date工具缺少时间参数，改用基础搜索")
                     search_tool = "basic_search_news"
             
             search_response = self.execute_search_tool(search_tool, search_query, **search_kwargs)
@@ -379,6 +384,7 @@ class DestinationIntelligenceAgent:
             
             # 生成反思总结
             reflection_summary_input = {
+                "trip_context": self.state.query,
                 "title": paragraph.title,
                 "content": paragraph.content,
                 "search_query": search_query,
@@ -397,15 +403,20 @@ class DestinationIntelligenceAgent:
     
     def _generate_final_report(self) -> str:
         """生成最终报告"""
-        logger.info(f"\n[步骤 3] 生成最终报告...")
+        logger.info("\n[步骤 3] 生成最终旅行攻略...")
         
         # 准备报告数据
-        report_data = []
+        sections = []
         for paragraph in self.state.paragraphs:
-            report_data.append({
+            sections.append({
                 "title": paragraph.title,
                 "paragraph_latest_state": paragraph.research.latest_summary
             })
+        report_data = {
+            "trip_context": self.state.query,
+            "report_title": self.state.report_title,
+            "sections": sections,
+        }
         
         # 格式化报告
         try:
@@ -413,7 +424,7 @@ class DestinationIntelligenceAgent:
         except Exception as e:
             logger.error(f"LLM格式化失败，使用备用方法: {str(e)}")
             final_report = self.report_formatting_node.format_report_manually(
-                report_data, self.state.report_title
+                sections, self.state.report_title
             )
         
         # 更新状态
@@ -430,7 +441,7 @@ class DestinationIntelligenceAgent:
         query_safe = "".join(c for c in self.state.query if c.isalnum() or c in (' ', '-', '_')).rstrip()
         query_safe = query_safe.replace(' ', '_')[:30]
         
-        filename = f"deep_search_report_{query_safe}_{timestamp}.md"
+        filename = f"travel_guide_{query_safe}_{timestamp}.md"
         filepath = os.path.join(self.config.OUTPUT_DIR, filename)
         
         # 保存报告

@@ -55,7 +55,7 @@ except ImportError:
 class SearchResult:
     """
     网页搜索结果数据类
-    包含 published_date 属性来存储新闻发布日期
+    包含 published_date 属性来存储来源发布日期
     """
     title: str
     url: str
@@ -84,7 +84,9 @@ class TavilyResponse:
 
 class TavilyNewsAgency:
     """
-    一个包含多种专用新闻舆情搜索工具的客户端。
+    一个通用网页研究客户端。
+    类名和公共方法沿用历史命名以保持兼容，底层搜索主题为 general，
+    可用于官方旅游信息、交通、景点、住宿、餐饮及日期敏感公告。
     每个公共方法都设计为供 AI Agent 独立调用的工具。
     """
 
@@ -134,11 +136,11 @@ class TavilyNewsAgency:
 
     def basic_search_news(self, query: str, max_results: int = 7) -> TavilyResponse:
         """
-        【工具】基础新闻搜索: 执行一次标准、快速的新闻搜索。
-        这是最常用的通用搜索工具，适用于不确定需要何种特定搜索时。
+        【工具】基础网页搜索: 执行一次标准、快速的通用搜索。
+        适用于官方页面、交通、景点、住宿区域和餐饮等单一事实。
         Agent可提供搜索查询(query)和可选的最大结果数(max_results)。
         """
-        logger.info("TOOL: 基础新闻搜索 (query: {})", query)
+        logger.info("TOOL: 基础网页搜索 (query: {})", query)
         return self._search_internal(
             query=query,
             max_results=max_results,
@@ -148,51 +150,48 @@ class TavilyNewsAgency:
 
     def deep_search_news(self, query: str) -> TavilyResponse:
         """
-        【工具】深度新闻分析: 对一个主题进行最全面、最深入的搜索。
-        返回AI生成的“高级”详细摘要答案和最多20条最相关的新闻结果。适用于需要全面了解某个事件背景的场景。
+        【工具】深度网页研究: 对一个旅行规划主题进行全面搜索。
+        适用于候选比较、复杂交通或综合目的地信息。
         Agent只需提供搜索查询(query)。
         """
-        logger.info("TOOL: 深度新闻分析 (query: {})", query)
+        logger.info("TOOL: 深度网页研究 (query: {})", query)
         return self._search_internal(
             query=query, search_depth="advanced", max_results=20, include_answer="advanced"
         )
 
     def search_news_last_24_hours(self, query: str) -> TavilyResponse:
         """
-        【工具】搜索24小时内新闻: 获取关于某个主题的最新动态。
-        此工具专门查找过去24小时内发布的新闻。适用于追踪突发事件或最新进展。
+        【工具】搜索24小时内信息: 核查关闭、预警、停运或活动调整等即时变化。
         Agent只需提供搜索查询(query)。
         """
-        logger.info("TOOL: 搜索24小时内新闻 (query: {})", query)
+        logger.info("TOOL: 搜索24小时内信息 (query: {})", query)
         return self._search_internal(query=query, time_range='d', max_results=10)
 
     def search_news_last_week(self, query: str) -> TavilyResponse:
         """
-        【工具】搜索本周新闻: 获取关于某个主题过去一周内的主要新闻报道。
-        适用于进行周度舆情总结或回顾。
+        【工具】搜索本周信息: 核查近期目的地动态、活动和风险公告。
         Agent只需提供搜索查询(query)。
         """
-        logger.info("TOOL: 搜索本周新闻 (query: {})", query)
+        logger.info("TOOL: 搜索本周信息 (query: {})", query)
         return self._search_internal(query=query, time_range='w', max_results=10)
 
     def search_images_for_news(self, query: str) -> TavilyResponse:
         """
-        【工具】查找新闻图片: 搜索与某个新闻主题相关的图片。
-        此工具会返回图片链接及描述，适用于需要为报告或文章配图的场景。
+        【工具】查找目的地图片: 搜索景点、地图或区域相关图片。
         Agent只需提供搜索查询(query)。
         """
-        logger.info("TOOL: 查找新闻图片 (query: {})", query)
+        logger.info("TOOL: 查找目的地图片 (query: {})", query)
         return self._search_internal(
             query=query, include_images=True, include_image_descriptions=True, max_results=5
         )
 
     def search_news_by_date(self, query: str, start_date: str, end_date: str) -> TavilyResponse:
         """
-        【工具】按指定日期范围搜索新闻: 在一个明确的历史时间段内搜索新闻。
-        这是唯一需要Agent提供详细时间参数的工具。适用于需要对特定历史事件进行分析的场景。
+        【工具】按发布日期范围搜索信息: 查找明确时间窗内发布的公告或动态。
+        日期表示来源发布日期，而不是旅行发生日期。
         Agent需要提供查询(query)、开始日期(start_date)和结束日期(end_date)，格式均为 'YYYY-MM-DD'。
         """
-        logger.info("TOOL: 按指定日期范围搜索新闻 (query: {}, from: {}, to: {})", query, start_date, end_date)
+        logger.info("TOOL: 按发布日期范围搜索信息 (query: {}, from: {}, to: {})", query, start_date, end_date)
         return self._search_internal(
             query=query, start_date=start_date, end_date=end_date, max_results=15
         )

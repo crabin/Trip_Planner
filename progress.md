@@ -1,5 +1,34 @@
 # Progress
 
+## 2026-06-22
+
+- Started destination-intelligence travel-guide optimization using `planning-with-files`.
+- Restored the prior completed AMap plan and confirmed there was no unsynced session context.
+- Existing worktree change is limited to user-owned `AGENTS.md`; it will be preserved.
+- Replaced the completed plan with a new seven-phase plan covering tutorial/link research, CodeGraph architecture inspection, guide contract design, implementation, verification, and documentation.
+- Read the first 560 lines of the tutorial and recorded its core time/place/belongings model, sightseeing-vs-vacation workflows, and geographic clustering method in `findings.md`.
+- Completed the tutorial review. Captured its final document modules, multi-city consistency concern, ticket/duration constraints, packing workflow, and optional flight-budget/accounting modules.
+- Reviewed the linked `hotel-comparer` repository and recorded its hotel/room comparison fields. Generic web access could not open the five Feishu wiki links; logged the error and changed approach.
+- Started read-only browser inspection of Feishu. Confirmed the packing checklist workbook/sheet structure; unauthenticated text extraction does not expose spreadsheet cells.
+- Inspected the transport/lodging planning workbook and captured its ordered multi-city inputs plus auto-generated summary behavior.
+- Inspected the public travel-guide template and captured its two planning modes, shared sections, and day-level time/movement/duration/ticket fields.
+- Inspected the completed Dunhuang guide and recorded the concrete operational detail expected from a finished guide: fixed times, transfer logistics, durations, reservations, meal/luggage sequencing, backups, and provisioning warnings.
+- Inspected the public flight-planning workbook; only its comparison purpose is exposed without login, so retained it as an optional complex-trip module.
+- Inspected the travel-accounting workbook and retained expense shares/per-person/AA settlement as an input-dependent optional module.
+- Completed Phase 2. Consolidated the tutorial and all linked resources into a ten-stage target workflow for a complete time-aware travel guide.
+- Audited the destination-intelligence call graph with CodeGraph. Confirmed the implementation is structurally reusable, but every prompt, fallback title/outline, and tool description is news-investigation oriented and lacks focused tests.
+- Completed architecture inspection and target design. Chose a compatibility-preserving implementation: five dependency-ordered research sections, original trip context at every stage, richer source evidence, travel-specific formatting/fallbacks, and focused tests.
+- Implemented travel-guide prompts/schemas, original-context propagation, richer source formatting, travel-specific fallbacks/filenames/logging, Streamlit copy, and seven focused tests.
+- First focused test collection failed because this repository does not expose the standalone agent directory as `app.agents`; logged the packaging error and started adapting the test import path.
+- Diagnosed the test command issue: the `pytest` console entrypoint omits the backend cwd for these standalone-agent imports, while `python -m pytest` uses the supported package path. The new tests pass under the latter without runtime packaging changes.
+- Targeted ruff passes for every modified source/test file. All existing destination-intelligence tests plus the seven new guide tests pass (15 total; one existing Pydantic deprecation warning).
+- Completed Phase 5 and started full verification plus representative guide-contract audit.
+- Full backend suite passed once (87 tests). Final contract audit then added strict five-section fallback enforcement and preserved source publication dates in persisted search history/UI.
+- The new state round-trip test exposed an existing missing `@classmethod` on `State.from_dict`; repaired it before rerunning verification.
+- Final targeted ruff passed and focused destination-intelligence suite passed with 17 tests.
+- Final full backend suite passed: 89 tests, 14 existing deprecation warnings.
+- Completed the output-contract audit against the tutorial and linked templates. All seven phases are complete; no live paid-provider run was performed.
+
 ## 2026-06-15
 
 - Started AMap API optimization using `planning-with-files`.

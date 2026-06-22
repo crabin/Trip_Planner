@@ -32,16 +32,20 @@ class ReportFormattingNode(BaseNode):
         if isinstance(input_data, str):
             try:
                 data = json.loads(input_data)
-                return isinstance(data, list) and all(
-                    isinstance(item, dict) and "title" in item and "paragraph_latest_state" in item
-                    for item in data
-                )
-            except:
+                return self.validate_input(data)
+            except (json.JSONDecodeError, TypeError):
                 return False
-        elif isinstance(input_data, list):
+        if isinstance(input_data, list):
             return all(
                 isinstance(item, dict) and "title" in item and "paragraph_latest_state" in item
                 for item in input_data
+            )
+        if isinstance(input_data, dict):
+            sections = input_data.get("sections")
+            trip_context = input_data.get("trip_context")
+            return bool(trip_context) and isinstance(sections, list) and all(
+                isinstance(item, dict) and "title" in item and "paragraph_latest_state" in item
+                for item in sections
             )
         return False
     
@@ -58,7 +62,9 @@ class ReportFormattingNode(BaseNode):
         """
         try:
             if not self.validate_input(input_data):
-                raise ValueError("输入数据格式错误，需要包含title和paragraph_latest_state的列表")
+                raise ValueError(
+                    "输入数据格式错误，需要旅行上下文和包含title、paragraph_latest_state的sections"
+                )
             
             # 准备输入数据
             if isinstance(input_data, str):
@@ -101,20 +107,20 @@ class ReportFormattingNode(BaseNode):
             
             # 确保报告有基本结构
             if not cleaned_output.strip():
-                return "# 报告生成失败\n\n无法生成有效的报告内容。"
+                return "# 旅行攻略生成失败\n\n无法生成有效的攻略内容。"
             
             # 如果没有标题，添加一个默认标题
             if not cleaned_output.strip().startswith('#'):
-                cleaned_output = "# 深度研究报告\n\n" + cleaned_output
+                cleaned_output = "# 目的地旅行攻略\n\n" + cleaned_output
             
             return cleaned_output.strip()
             
         except Exception as e:
             logger.exception(f"处理输出失败: {str(e)}")
-            return "# 报告处理失败\n\n报告格式化过程中发生错误。"
+            return "# 旅行攻略处理失败\n\n攻略格式化过程中发生错误。"
     
     def format_report_manually(self, paragraphs_data: List[Dict[str, str]], 
-                             report_title: str = "深度研究报告") -> str:
+                             report_title: str = "目的地旅行攻略") -> str:
         """
         手动格式化报告（备用方法）
         
@@ -151,13 +157,13 @@ class ReportFormattingNode(BaseNode):
                         ""
                     ])
             
-            # 添加结论
+            # 添加出发前复核提醒
             if len(paragraphs_data) > 1:
                 report_lines.extend([
-                    "## 结论",
+                    "## 出发前复核",
                     "",
-                    "本报告通过深度搜索和研究，对相关主题进行了全面分析。"
-                    "以上各个方面的内容为理解该主题提供了重要参考。",
+                    "请在出发前再次核验交通班次、住宿晚数、景点开放与预约、"
+                    "天气预警和价格库存等动态信息。",
                     ""
                 ])
             
@@ -165,4 +171,4 @@ class ReportFormattingNode(BaseNode):
             
         except Exception as e:
             logger.exception(f"手动格式化失败: {str(e)}")
-            return "# 报告生成失败\n\n无法完成报告格式化。"
+            return "# 旅行攻略生成失败\n\n无法完成攻略格式化。"

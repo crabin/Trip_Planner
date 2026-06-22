@@ -18,6 +18,7 @@ class Search:
     title: str = ""  # 搜索结果标题
     content: str = ""  # 搜索返回结果内容
     score: Optional[float] = None  # 搜索结果评分
+    published_date: Optional[str] = None  # 来源发布日期
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -28,6 +29,7 @@ class Search:
             "title": self.title,
             "content": self.content,
             "score": self.score,
+            "published_date": self.published_date,
             "timestamp": self.timestamp,
         }
 
@@ -40,6 +42,7 @@ class Search:
             title=data.get("title", ""),
             content=data.get("content", ""),
             score=data.get("score"),
+            published_date=data.get("published_date"),
             timestamp=data.get("timestamp", datetime.now().isoformat()),
         )
 
@@ -66,6 +69,7 @@ class Research:
                 title=item.get("title", ""),
                 content=item.get("content", ""),
                 score=item.get("score"),
+                published_date=item.get("published_date"),
             )
             self.add_search(search)
 
@@ -228,6 +232,7 @@ class State:
             "updated_at": self.updated_at,
         }
     
+    @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "State":
         """从字典创建State对象"""
         paragraphs = [Paragraph.from_dict(p) for p in data.get("paragraphs", [])]

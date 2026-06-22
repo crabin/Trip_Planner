@@ -303,6 +303,14 @@ def format_search_results_for_prompt(search_results: List[Dict[str, Any]],
         content = result.get('content', '')
         if content:
             truncated_content = truncate_content(content, max_length)
-            formatted_results.append(truncated_content)
+            metadata = [f"标题: {result.get('title') or '未提供'}"]
+            if result.get('url'):
+                metadata.append(f"URL: {result['url']}")
+            if result.get('published_date'):
+                metadata.append(f"发布日期: {result['published_date']}")
+            if result.get('score') is not None:
+                metadata.append(f"相关度: {result['score']}")
+            metadata.append(f"内容: {truncated_content}")
+            formatted_results.append("\n".join(metadata))
     
     return formatted_results

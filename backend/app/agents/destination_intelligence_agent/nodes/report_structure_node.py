@@ -138,6 +138,13 @@ class ReportStructureNode(StateMutationNode):
             if not validated_structure:
                 logger.warning("没有有效的段落结构，使用默认结构")
                 return self._generate_default_structure()
+
+            if len(validated_structure) != 5:
+                logger.warning(
+                    "攻略研究结构需要恰好5个部分，实际为{}个，使用完整默认结构",
+                    len(validated_structure),
+                )
+                return self._generate_default_structure()
             
             logger.info(f"成功验证 {len(validated_structure)} 个段落结构")
             return validated_structure
@@ -156,13 +163,25 @@ class ReportStructureNode(StateMutationNode):
         logger.info("生成默认报告结构")
         return [
             {
-                "title": "研究概述",
-                "content": "对查询主题进行总体概述和分析"
+                "title": "旅行概览、偏好与目标时段约束",
+                "content": "梳理日期、天数晚数、出发地、同行人、预算、旅行模式、天气季节、节假日和待确认假设。"
             },
             {
-                "title": "深度分析",
-                "content": "深入分析查询主题的各个方面"
-            }
+                "title": "跨市交通、市内交通与住宿",
+                "content": "研究到离时间窗、枢纽接驳、当地移动方式、住宿区域与逐晚覆盖，并检查相互制约。"
+            },
+            {
+                "title": "候选景点、体验、餐饮与地理分组",
+                "content": "整理开放预约、建议时长、适配度和地理片区，说明入选、舍弃、备选和餐饮补给。"
+            },
+            {
+                "title": "逐日可执行行程",
+                "content": "按准确日期建立每天的时间—地点链，包含交通、游玩、用餐、住宿、机动时间和替代方案。"
+            },
+            {
+                "title": "出发准备、预算与风险预案",
+                "content": "整理预订时间线、行李、预算框架、实用提示、应急方案、出发前复核项和来源。"
+            },
         ]
     
     def mutate_state(self, input_data: Any = None, state: State = None, **kwargs) -> State:
@@ -187,7 +206,7 @@ class ReportStructureNode(StateMutationNode):
             # 设置查询和报告标题
             state.query = self.query
             if not state.report_title:
-                state.report_title = f"关于'{self.query}'的深度研究报告"
+                state.report_title = f"目的地旅行攻略｜{self.query}"
             
             # 添加段落到状态
             for paragraph_data in report_structure:
