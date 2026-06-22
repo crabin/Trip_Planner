@@ -1,3 +1,5 @@
 """Future LLM client helpers for destination intelligence."""
 
-__all__: list[str] = []
+from .base import LLMClient
+
+__all__: list[str] = ["LLMClient"]
