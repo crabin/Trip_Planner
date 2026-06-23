@@ -146,6 +146,123 @@ export interface BudgetBreakdown {
   total: number;
 }
 
+export interface DisplayTextItem {
+  key: string;
+  label: string;
+  value: string;
+  source_path?: string | null;
+}
+
+export interface DisplayChecklistItem {
+  key: string;
+  text: string;
+  checked: boolean;
+  source_path?: string | null;
+}
+
+export interface DisplayBudgetItem {
+  key: string;
+  label: string;
+  amount: number;
+  formatted: string;
+  source_path?: string | null;
+}
+
+export interface DisplayMapPoint {
+  key: string;
+  kind: "spot" | "meal" | "hotel";
+  label: string;
+  day_index: number;
+  date?: string | null;
+  theme: string;
+  name: string;
+  address: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  poi_id?: string | null;
+  image_url?: string | null;
+  description: string;
+  rating?: number | null;
+  average_cost?: number | null;
+  estimated_cost?: number | null;
+  tags: string[];
+  distance_meters?: number | null;
+  tel?: string | null;
+  business_area?: string | null;
+  open_time_today?: string | null;
+  map_type?: string | null;
+  recommended: boolean;
+  source_path?: string | null;
+}
+
+export interface DisplayRecommendationItem {
+  key: string;
+  kind: "meal" | "hotel";
+  day_index: number;
+  date?: string | null;
+  theme: string;
+  title: string;
+  subtitle: string;
+  reason: string;
+  image_url?: string | null;
+  meta: string[];
+  tags: string[];
+  contact: string;
+  note: string;
+  source_path?: string | null;
+}
+
+export interface DisplayDayCard {
+  key: string;
+  day_index: number;
+  title: string;
+  subtitle: string;
+  date?: string | null;
+  theme: string;
+  fields: DisplayTextItem[];
+  notes: string[];
+  source_path?: string | null;
+}
+
+export interface DisplaySection {
+  key: string;
+  title: string;
+  kind:
+    | "overview"
+    | "budget"
+    | "day_budget"
+    | "tips"
+    | "map"
+    | "weather"
+    | "recommendations"
+    | "poi_details"
+    | "daily_plan"
+    | "editor";
+  order: number;
+  visible: boolean;
+  summary: string;
+  item_keys: string[];
+}
+
+export interface ItineraryDisplay {
+  version: "itinerary-display-v1" | string;
+  title: string;
+  subtitle: string;
+  overview: DisplayTextItem[];
+  plan_highlights: DisplayTextItem[];
+  confirmations: DisplayTextItem[];
+  tips: string[];
+  tip_items: DisplayChecklistItem[];
+  budget_items: DisplayBudgetItem[];
+  day_budget_items: DisplayBudgetItem[];
+  map_points: DisplayMapPoint[];
+  scenic_points: DisplayMapPoint[];
+  hotel_recommendations: DisplayRecommendationItem[];
+  meal_recommendations: DisplayRecommendationItem[];
+  day_cards: DisplayDayCard[];
+  sections: DisplaySection[];
+}
+
 export interface Itinerary {
   trip_id: string;
   destination: string;
@@ -155,6 +272,7 @@ export interface Itinerary {
   budget_breakdown: BudgetBreakdown;
   tips: string[];
   source_notes: string[];
+  display?: ItineraryDisplay | null;
 }
 
 export interface TripSaveResponse {
@@ -186,6 +304,34 @@ export interface TripSummaryItem {
 export interface TripListResponse {
   total: number;
   items: TripSummaryItem[];
+}
+
+export interface ChatbotConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatbotSearchSource {
+  title: string;
+  url: string;
+  content: string;
+  published_date?: string | null;
+  score?: number | null;
+}
+
+export interface ChatbotMessagePayload {
+  message: string;
+  trip_id?: string | null;
+  current_itinerary?: Itinerary | null;
+  history: ChatbotConversationMessage[];
+}
+
+export interface ChatbotMessageResponse {
+  intent: "ask" | "update" | "search";
+  reply: string;
+  reason: string;
+  updated_itinerary?: Itinerary | null;
+  sources: ChatbotSearchSource[];
 }
 
 export interface TripDetailResponse {

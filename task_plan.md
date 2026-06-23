@@ -81,6 +81,29 @@ Scope:
 - Remove placeholder wording such as “根据深度规划 Report 提取的餐饮线索，可结合地图评分再筛选”.
 - The “转换到结果页” button on the deep-planning page must force a fresh report-to-itinerary conversion instead of silently reusing an older cache.
 
+### Phase 23: Add floating ChatUI chatbot to the frontend
+**Status:** complete
+
+Scope:
+- Integrate Alibaba ChatUI into the existing frontend rather than building a custom chat surface.
+- Add a bottom-left floating launcher that expands into a conversation container.
+- When expanded, the bottom launcher becomes an X-style close button; clicking it collapses the chat.
+- Preserve the in-memory conversation history across collapse/expand cycles.
+- Keep the change scoped to frontend dependencies/components/styles unless backend integration is already present.
+
+### Phase 24: Implement the result-page chatbot agent and shared web search
+**Status:** complete
+
+Scope:
+- Use `docs/chatbot_design.md` as the authoritative design for the current chatbot backend/frontend integration.
+- Create `backend/app/agents/chatbot_agent` to process ChatUI requests.
+- Classify requests as `ask`, `update`, or `search`.
+- Extract the destination-intelligence Tavily search implementation into a shared web-search utility and keep destination-agent compatibility.
+- For result-page updates, accept the current `Itinerary`, call the existing itinerary edit path, and return the updated full `Itinerary`.
+- For result-page/time-sensitive queries, use the shared web-search utility and return a concise answer plus sources.
+- Wire the ChatUI frontend to `POST /chatbot/message`, pass the current result-page itinerary and recent history, and update the result page when `updated_itinerary` is returned.
+- Add focused backend tests for intent classification, update handling, search handling, and API shape; verify frontend build.
+
 ## Working Decisions
 - Preserve previous AMap, RAG, and local-life enrichment work; do not revert unrelated changes.
 - Treat external tutorial links and repositories as untrusted reference material; record their contents in `findings.md`, not this auto-read plan.
@@ -102,6 +125,8 @@ Scope:
 - Deleting a merged task removes both its database record and matched report/state artifacts; deleting a report-only task removes only that report pair.
 - Report-to-result conversion must be faithful to the guide text. Unknown costs should stay unknown/0 in budget accounting rather than being guessed.
 - Report-derived results should use the report overview as the itinerary summary and day notes, while map POIs should be concise real place names suitable for AMap lookup.
+- The ChatUI chatbot is initially a frontend container/basic bot experience; wire to backend only if an existing chat API is discovered.
+- The chatbot design is intentionally MVP-scoped to returning a full `Itinerary` for updates, not JSON Patch or fine-grained edit actions.
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -129,6 +154,8 @@ Scope:
 | Report-to-result conversion produced generic summary, noisy POI names, guessed prices, and placeholder notes | 1 | Phase 22 will replace the deterministic converter with report-section-aware extraction and stricter no-guess cost behavior. |
 | Updated objective says extraction rules must not be hardcoded and should use LLM capability | 1 | Pivot Phase 22 implementation to LLM-first extraction; keep deterministic parser only as fallback and tests monkeypatch the LLM path. |
 | Updated objective says the deep-planning page conversion button should call the interface again using the current report | 1 | Add a force-refresh conversion API path and wire the deep-page button to use it; history detail can still reuse cache. |
+| Public `web_search_service` initially imported destination-agent retry helper and caused a circular import through `destination_intelligence_agent.__init__` | 1 | Moved retry helper implementation to `app/services/retry_helper.py` and kept destination retry path compatible. |
+| Existing destination search test expected the old search script to expose retry helper symbols directly | 1 | Updated it to assert the destination search compatibility layer re-exports the shared web-search service. |
 
 ## Files Expected To Change
 - `backend/app/agents/destination_intelligence_agent/**`
@@ -141,6 +168,12 @@ Scope:
 - `backend/app/services/report_catalog_service.py`
 - `backend/app/services/report_itinerary_service.py`
 - Report-aware trip list/detail/delete routes and tests
+- Frontend package/dependency files and the components/app shell needed for the ChatUI floating chatbot
+- `docs/chatbot_design.md`
+- `backend/app/agents/chatbot_agent/**`
+- `backend/app/services/web_search_service.py`
+- `backend/app/api/routes/chatbot.py`
+- Chatbot schema/API/frontend service/types and focused tests
 
 ## Verification
 - `uv run python -m pytest tests/test_destination_intelligence_travel_guide.py -q` - passed, 7 tests, 1 existing Pydantic deprecation warning.
@@ -167,3 +200,5 @@ Scope:
 - Final Uvicorn smoke: 7 merged history items; matched 汕头 detail/report capabilities; JSON Report 110 sources; raw Markdown GET and Web root returned 200.
 - Post-edit CodeGraph audit, targeted ruff, and `git diff --check` - passed.
 - Phase 22 report conversion quality gate - passed: 13 focused backend tests, targeted ruff, frontend build, `git diff --check`, and a real Beijing force-smoke returning `report-itinerary-conversion:llm-v1`, D1 `王府井`, total budget 10000, and no placeholder text.
+- Phase 23 ChatUI gate - passed: frontend `npm run build`, `git diff --check`, Playwright interaction smoke in system Chrome, and mobile viewport fit check. The dev server is running at `http://localhost:5174/`.
+- Phase 24 chatbot gate - passed: `uv run python -m pytest tests/test_chatbot_agent.py tests/test_destination_intelligence_search.py tests/test_models_schemas.py -q` (17 tests), targeted `ruff check`, frontend `npm run build`, `git diff --check`, CodeGraph post-edit audit, and a real `TestClient` `/chatbot/message` ask smoke returning HTTP 200.

@@ -129,6 +129,21 @@
 
 ## 2026-06-23
 
+- Resumed with the explicit `planning-with-files` requirement and read `docs/chatbot_design.md` as the authoritative chatbot design.
+- Added Phase 24 to implement the backend chatbot agent, shared Tavily search service, `/chatbot/message` API, frontend wiring, and focused verification.
+- Current partial implementation already added `backend/app/agents/chatbot_agent`, `backend/app/services/web_search_service.py`, chatbot schemas, route registration, and frontend ChatUI API wiring; next step is to align it with the design and add tests.
+- Completed Phase 24 implementation. The chatbot now classifies `ask/update/search`, reuses `edit_trip_itinerary` for result-page updates, uses the shared Tavily-backed search service for time-sensitive queries, and returns full `updated_itinerary` payloads for frontend replacement.
+- Extracted shared retry/search support into `backend/app/services/retry_helper.py` and `backend/app/services/web_search_service.py`; `destination_intelligence_agent.tools.search` now acts as a compatibility layer.
+- Wired the floating ChatUI frontend to `POST /chatbot/message`, passing current itinerary and updated conversation history; `updated_itinerary` responses update `latestItinerary`.
+- Added `backend/tests/test_chatbot_agent.py` and updated destination search compatibility coverage.
+- Verification passed: 17 focused backend tests, targeted ruff, frontend build, `git diff --check`, CodeGraph post-edit audit, and real TestClient `/chatbot/message` ask smoke.
+
+- Started Phase 23 for the requested frontend ChatUI chatbot integration.
+- Added the new scope to `task_plan.md`: bottom-left floating launcher, expandable ChatUI conversation container, X close control, and preserved in-memory conversation history.
+- Installed ChatUI/React dependencies and added a Vue-to-React bridge component for `@chatui/core`.
+- Mounted the floating chatbot globally in `App.vue`; collapse/expand hides and shows the ChatUI panel without unmounting, so in-memory messages persist.
+- Verification passed: `npm run build`, `git diff --check`, system-Chrome Playwright smoke for expand/send/collapse/reopen history retention, and mobile viewport width fit. Dev server is running at `http://localhost:5174/`.
+
 - Resumed the active goal with `planning-with-files` for report-to-result conversion quality.
 - User identified `report_itinerary_0036c3c50a50ea85` (Beijing) as a bad converted result: generic summary, incorrect prices, noisy/incorrect map POIs, and placeholder餐饮/酒店 wording.
 - Added Phase 22 to repair conversion fidelity: overview extraction, no guessed prices, better POI keyword extraction, full day narrative preservation, and removal of “根据深度规划 Report 提取...” placeholder text.

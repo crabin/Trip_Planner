@@ -1,6 +1,8 @@
 import axios from "axios";
 
 import type {
+  ChatbotMessagePayload,
+  ChatbotMessageResponse,
   Itinerary,
   TripDetailResponse,
   TripEditPayload,
@@ -33,6 +35,13 @@ export async function generateDeepTrip(
 
 export async function editTrip(payload: TripEditPayload): Promise<Itinerary> {
   const response = await api.post<Itinerary>("/trip/edit", payload);
+  return response.data;
+}
+
+export async function sendChatbotMessage(
+  payload: ChatbotMessagePayload
+): Promise<ChatbotMessageResponse> {
+  const response = await api.post<ChatbotMessageResponse>("/chatbot/message", payload);
   return response.data;
 }
 

@@ -21,6 +21,7 @@ from app.services.report_catalog_service import (
     match_report_for_trip,
     report_artifact_to_summary,
 )
+from app.services.itinerary_display_service import attach_itinerary_display
 
 
 _ADDITIVE_COLUMNS = {
@@ -139,6 +140,7 @@ def _is_internal_itinerary_cache(record: TripRecord) -> bool:
 def save_itinerary(itinerary: Itinerary) -> str:
     """保存或更新完整 itinerary，并返回 trip_id。"""
     init_db()
+    attach_itinerary_display(itinerary)
     session = SessionLocal()
     try:
         itinerary_json = json.dumps(itinerary.model_dump(mode="json"), ensure_ascii=False)
@@ -293,6 +295,7 @@ def get_itinerary_by_trip_id(trip_id: str) -> TripDetailResponse | None:
         deep_plan = None
         if (record.plan_type or "quick") == "quick":
             itinerary = Itinerary(**json.loads(record.itinerary_json))
+            attach_itinerary_display(itinerary)
         elif record.deep_plan_json:
             deep_plan = DeepPlanDocument(**json.loads(record.deep_plan_json))
 

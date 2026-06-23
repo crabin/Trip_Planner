@@ -24,6 +24,7 @@ from app.models.schemas import (
     TripEditRequest,
     TripRequest,
 )
+from app.services.itinerary_display_service import attach_itinerary_display
 from app.services.map_service import enrich_itinerary_with_map_data
 
 
@@ -540,11 +541,12 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         tips=tips,
         source_notes=source_notes,
     )
-    return _maybe_enrich_itinerary_with_map_data(
+    enriched_itinerary = _maybe_enrich_itinerary_with_map_data(
         itinerary,
         city=request.destination,
         request_budget=request.budget,
     )
+    return attach_itinerary_display(enriched_itinerary)
 
 
 def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
@@ -616,8 +618,9 @@ def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
         or updated_itinerary.budget_breakdown.total
         or None
     )
-    return _maybe_enrich_itinerary_with_map_data(
+    enriched_itinerary = _maybe_enrich_itinerary_with_map_data(
         updated_itinerary,
         city=updated_itinerary.destination,
         request_budget=reference_budget,
     )
+    return attach_itinerary_display(enriched_itinerary)

@@ -2,6 +2,7 @@
 import { ref } from "vue";
 
 import type { Itinerary, TripDetailResponse } from "./types";
+import FloatingChatbot from "./components/FloatingChatbot.vue";
 import DeepPlanResult from "./views/DeepPlanResult.vue";
 import History from "./views/History.vue";
 import Home from "./views/Home.vue";
@@ -106,6 +107,11 @@ function updateCurrentItinerary(itinerary: Itinerary) {
         @view-history="currentView = 'history'"
       />
     </main>
+
+    <FloatingChatbot
+      :current-itinerary="latestItinerary"
+      @itinerary-updated="updateCurrentItinerary"
+    />
   </div>
 </template>
 

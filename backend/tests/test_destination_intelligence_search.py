@@ -1,26 +1,13 @@
-from pathlib import Path
-import runpy
-
 from app.agents.destination_intelligence_agent.tools.search import TavilyNewsAgency
 from app.agents.destination_intelligence_agent.utils.retry_helper import (
     RetryConfig,
     with_graceful_retry,
 )
+from app.services.web_search_service import TavilyNewsAgency as SharedTavilyNewsAgency
 
 
-def test_search_script_loads_without_importing_pypi_retry_helper() -> None:
-    search_script = (
-        Path(__file__).resolve().parents[1]
-        / "app"
-        / "agents"
-        / "destination_intelligence_agent"
-        / "tools"
-        / "search.py"
-    )
-
-    namespace = runpy.run_path(str(search_script), run_name="destination_search_test")
-
-    assert namespace["with_graceful_retry"].__module__.endswith("utils.retry_helper")
+def test_destination_search_reexports_shared_web_search_service() -> None:
+    assert TavilyNewsAgency is SharedTavilyNewsAgency
 
 
 def test_with_graceful_retry_returns_fallback_after_configured_attempts() -> None:

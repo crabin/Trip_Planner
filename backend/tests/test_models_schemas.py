@@ -23,6 +23,7 @@ from app.models.schemas import (  # noqa: E402
     TripRequest,
     TripSaveRequest,
 )
+from app.services.itinerary_display_service import attach_itinerary_display  # noqa: E402
 
 
 def build_trip_request() -> TripRequest:
@@ -145,6 +146,58 @@ def test_itinerary_can_be_created_successfully() -> None:
     assert len(itinerary.days) == 1
     assert itinerary.days[0].theme == "古城慢游"
     assert itinerary.budget_breakdown.total == 1550
+
+
+def test_itinerary_display_json_is_structured_for_result_page_updates() -> None:
+    '''测试 itinerary 可以生成解耦的结果页展示 JSON。'''
+    itinerary = attach_itinerary_display(build_itinerary())
+
+    assert itinerary.display is not None
+    assert itinerary.display.version == "itinerary-display-v1"
+    assert itinerary.display.title == "大理旅行计划"
+    assert itinerary.display.overview[0].key == "date_range"
+    assert itinerary.display.tip_items[0].key == "tip_1"
+    assert itinerary.display.tip_items[0].checked is False
+    assert itinerary.display.tip_items[0].source_path == "tips.0"
+    assert itinerary.display.budget_items[0].source_path == "budget_breakdown.tickets"
+    assert itinerary.display.map_points[0].source_path == "days.0.spots.0"
+    assert itinerary.display.day_cards[0].fields[0].source_path == "days.0.spots.0.name"
+    assert {section.key for section in itinerary.display.sections} >= {
+        "overview",
+        "budget",
+        "tips",
+        "map",
+        "daily_plan",
+    }
+
+
+def test_itinerary_display_tips_are_prioritized_and_limited() -> None:
+    '''测试结果页旅行提示只展示少量高优先级检查项。'''
+    itinerary = build_itinerary()
+    itinerary.tips = [
+        "手机、相机、充电宝充满",
+        "今晚住宿优先订大理古城南门/西门外、可打车到门口、舒适型双床/大床房",
+        "出发前复核天气与逐小时降雨",
+        "若06-25返程已知，先收藏返程站点与酒店定位",
+        "只锁1顿重点晚餐，其余餐饮现场机动更稳",
+        "保存酒店地址、电话、订单截图",
+        "如去苍山，复核索道官方运营状态",
+        "带齐雨具、防晒、薄外套",
+        "若走海东线，提前锁返程车或考虑包车",
+        "今晚住宿优先订大理古城南门/西门外、可打车到门口、舒适型双床/大床房",
+    ]
+
+    itinerary = attach_itinerary_display(itinerary)
+
+    assert itinerary.display is not None
+    assert itinerary.display.tips == [
+        "今晚住宿优先订大理古城南门/西门外、可打车到门口、舒适型双床/大床房",
+        "若06-25返程已知，先收藏返程站点与酒店定位",
+        "若走海东线，提前锁返程车或考虑包车",
+        "出发前复核天气与逐小时降雨",
+        "带齐雨具、防晒、薄外套",
+    ]
+    assert len(itinerary.display.tip_items) == 5
 
 
 def test_day_plan_contains_nested_objects() -> None:

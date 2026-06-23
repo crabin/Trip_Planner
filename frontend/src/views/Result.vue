@@ -10,7 +10,15 @@ import {
   fetchWeatherForecast,
   saveTrip,
 } from "../services/api";
-import type { HotelItem, Itinerary, MealItem, SpotItem, WeatherForecastResponse } from "../types";
+import type {
+  DisplayChecklistItem,
+  DisplayMapPoint,
+  HotelItem,
+  Itinerary,
+  MealItem,
+  SpotItem,
+  WeatherForecastResponse,
+} from "../types";
 
 const props = defineProps<{
   itinerary: Itinerary | null;
@@ -32,6 +40,8 @@ const weatherLoading = ref(false);
 const weatherError = ref("");
 const weather = ref<WeatherForecastResponse | null>(null);
 const mapExpanded = ref(false);
+const checkedTipState = ref<Record<string, boolean>>({});
+const maxOverviewTips = 5;
 
 function formatShortDate(dateText?: string | null): string {
   if (!dateText) {
@@ -185,6 +195,8 @@ const overviewLabels = [
   "确认方法",
 ];
 
+const structuredDisplay = computed(() => props.itinerary?.display || null);
+
 function findOverviewLabelPositions(summary: string) {
   const positions = overviewLabels
     .flatMap((label) => {
@@ -227,11 +239,21 @@ function parseOverviewSummary(summary?: string | null) {
     .filter((item) => item.value);
 }
 
-const overviewFields = computed(() => parseOverviewSummary(props.itinerary?.summary));
+const overviewFields = computed(() => {
+  const display = structuredDisplay.value;
+  if (display) {
+    return [...display.overview, ...display.plan_highlights, ...display.confirmations];
+  }
+  return parseOverviewSummary(props.itinerary?.summary);
+});
 
 const overviewMetaItems = computed(() => {
   if (!props.itinerary) {
     return [];
+  }
+
+  if (structuredDisplay.value?.overview.length) {
+    return structuredDisplay.value.overview;
   }
 
   const fieldMap = new Map(overviewFields.value.map((item) => [item.label, item.value]));
@@ -251,16 +273,27 @@ const overviewMetaItems = computed(() => {
 });
 
 const overviewPlanItems = computed(() =>
-  overviewFields.value.filter((item) =>
-    ["推荐结构", "跨市交通", "市内交通", "逐晚住宿", "预算口径", "关键假设"].includes(item.label)
-  )
+  structuredDisplay.value?.plan_highlights.length
+    ? structuredDisplay.value.plan_highlights
+    : overviewFields.value.filter((item) =>
+        ["推荐结构", "跨市交通", "市内交通", "逐晚住宿", "预算口径", "关键假设"].includes(item.label)
+      )
 );
 
 const overviewConfirmItems = computed(() =>
-  overviewFields.value.filter((item) => ["待确认项", "确认方法", "方案生成/信息核验日期"].includes(item.label))
+  structuredDisplay.value?.confirmations.length
+    ? structuredDisplay.value.confirmations
+    : overviewFields.value.filter((item) => ["待确认项", "确认方法", "方案生成/信息核验日期"].includes(item.label))
 );
 
 const budgetItems = computed(() => {
+  if (structuredDisplay.value?.budget_items.length) {
+    return structuredDisplay.value.budget_items.map((item) => ({
+      label: item.label,
+      value: item.formatted,
+    }));
+  }
+
   if (!props.itinerary) {
     return [];
   }
@@ -301,6 +334,10 @@ const dayBudgetItems = computed(() => {
 });
 
 const mapPoints = computed(() => {
+  if (structuredDisplay.value?.map_points.length) {
+    return structuredDisplay.value.map_points.map(displayMapPointToMapPoint);
+  }
+
   if (!props.itinerary) {
     return [];
   }
@@ -452,6 +489,10 @@ const hasRainyWeather = computed(() => {
 });
 
 const displayTips = computed(() => {
+  if (structuredDisplay.value?.tips.length) {
+    return structuredDisplay.value.tips.slice(0, maxOverviewTips);
+  }
+
   if (!props.itinerary) {
     return [];
   }
@@ -472,7 +513,7 @@ const displayTips = computed(() => {
 
   const uniqueTips = Array.from(new Set(weatherAwareTips));
   if (uniqueTips.length) {
-    return uniqueTips;
+    return uniqueTips.slice(0, maxOverviewTips);
   }
 
   return [
@@ -481,14 +522,85 @@ const displayTips = computed(() => {
   ];
 });
 
+const displayTipItems = computed<DisplayChecklistItem[]>(() => {
+  const structuredItems = structuredDisplay.value?.tip_items || [];
+  if (structuredItems.length) {
+    return structuredItems
+      .slice(0, maxOverviewTips)
+      .map((item) => ({
+        ...item,
+        checked: checkedTipState.value[item.key] ?? item.checked,
+      }));
+  }
+
+  return displayTips.value.map((tip, index) => {
+    const key = `tip_${index + 1}`;
+    return {
+      key,
+      text: tip,
+      checked: checkedTipState.value[key] ?? false,
+      source_path: `tips.${index}`,
+    };
+  });
+});
+
+function toggleTipCheck(key: string, checked: boolean) {
+  checkedTipState.value = {
+    ...checkedTipState.value,
+    [key]: checked,
+  };
+}
+
+function handleTipCheck(key: string, event: Event) {
+  const target = event.target as HTMLInputElement | null;
+  toggleTipCheck(key, Boolean(target?.checked));
+}
+
+function displayMapPointToMapPoint(point: DisplayMapPoint) {
+  return {
+    key: point.key,
+    kind: point.kind,
+    label: point.label,
+    dayIndex: point.day_index,
+    date: point.date || "待定",
+    theme: point.theme || "未命名主题",
+    name: point.name,
+    address: point.address || "待补充",
+    latitude: point.latitude,
+    longitude: point.longitude,
+    poiId: point.poi_id,
+    imageUrl: point.image_url,
+    description: point.description || "暂无说明",
+    rating: point.rating,
+    averageCost: point.average_cost,
+    estimatedCost: point.estimated_cost,
+    tags: point.tags || [],
+    distanceMeters: point.distance_meters,
+    tel: point.tel,
+    businessArea: point.business_area,
+    openTimeToday: point.open_time_today,
+    type: point.map_type,
+    recommended: point.recommended,
+  };
+}
+
 function buildVisibleItinerary(): Itinerary | null {
   if (!props.itinerary) {
     return null;
   }
 
+  const display = props.itinerary.display
+    ? {
+        ...props.itinerary.display,
+        tips: displayTips.value,
+        tip_items: displayTipItems.value,
+      }
+    : props.itinerary.display;
+
   return {
     ...props.itinerary,
     tips: displayTips.value,
+    display,
   };
 }
 
@@ -534,6 +646,9 @@ watch(
   () => {
     const firstDay = props.itinerary?.days[0];
     editScope.value = firstDay ? `day_${firstDay.day_index}` : "day_1";
+    checkedTipState.value = Object.fromEntries(
+      (props.itinerary?.display?.tip_items || []).map((item) => [item.key, item.checked])
+    );
   },
   { immediate: true }
 );
@@ -701,10 +816,19 @@ async function handleEdit() {
           </div>
         </div>
         <div v-else class="info-row summary-text">{{ itinerary.summary }}</div>
-        <div v-if="displayTips.length" class="overview-tips">
+        <div v-if="displayTipItems.length" class="overview-tips">
           <div class="overview-tips__title">旅行提示</div>
-          <ul>
-            <li v-for="tip in displayTips" :key="tip">{{ tip }}</li>
+          <ul class="tip-checklist">
+            <li v-for="tip in displayTipItems" :key="tip.key">
+              <label class="tip-checklist__item" :class="{ 'tip-checklist__item--checked': tip.checked }">
+                <input
+                  type="checkbox"
+                  :checked="tip.checked"
+                  @change="handleTipCheck(tip.key, $event)"
+                />
+                <span>{{ tip.text }}</span>
+              </label>
+            </li>
           </ul>
         </div>
       </section>
@@ -1345,13 +1469,39 @@ async function handleEdit() {
   font-weight: 800;
 }
 
-.overview-tips ul {
+.tip-checklist {
   display: grid;
   gap: 8px;
   margin: 0;
-  padding-left: 18px;
+  padding: 0;
+  list-style: none;
   color: #5d6675;
   line-height: 1.7;
+}
+
+.tip-checklist__item {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  cursor: pointer;
+}
+
+.tip-checklist__item input {
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  accent-color: #5d66c3;
+}
+
+.tip-checklist__item span {
+  transition: color 0.18s ease, text-decoration-color 0.18s ease;
+}
+
+.tip-checklist__item--checked span {
+  color: #98a2b3;
+  text-decoration: line-through;
+  text-decoration-color: rgba(93, 102, 195, 0.45);
 }
 
 .budget-summary {

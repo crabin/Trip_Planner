@@ -161,6 +161,140 @@ class BudgetBreakdown(BaseModel):
     total: float = Field(default=0.0, ge=0, description="预算总计")
 
 
+class DisplayTextItem(BaseModel):
+    """结果页中可独立编辑的一条标签文本。"""
+
+    key: str = Field(..., description="稳定字段标识，便于聊天机器人定点修改")
+    label: str = Field(..., description="展示标签")
+    value: str = Field(default="", description="展示文本")
+    source_path: str | None = Field(default=None, description="对应原始 itinerary 字段路径")
+
+
+class DisplayChecklistItem(BaseModel):
+    """结果页中可勾选的检查项。"""
+
+    key: str = Field(..., description="稳定检查项标识")
+    text: str = Field(..., description="检查项文本")
+    checked: bool = Field(default=False, description="是否已勾选")
+    source_path: str | None = Field(default=None, description="对应原始 itinerary 字段路径")
+
+
+class DisplayBudgetItem(BaseModel):
+    """结果页中的预算展示项。"""
+
+    key: str = Field(..., description="预算项标识")
+    label: str = Field(..., description="展示标签")
+    amount: float = Field(default=0.0, ge=0, description="预算金额")
+    formatted: str = Field(default="", description="已格式化文本")
+    source_path: str | None = Field(default=None, description="对应原始 itinerary 字段路径")
+
+
+class DisplayMapPoint(BaseModel):
+    """地图和点位卡片共享的结构化展示点。"""
+
+    key: str = Field(..., description="前端渲染用稳定 key")
+    kind: Literal["spot", "meal", "hotel"] = Field(..., description="点位类型")
+    label: str = Field(..., description="点位标签")
+    day_index: int = Field(..., ge=1, description="所属天数")
+    date: str | None = Field(default=None, description="所属日期")
+    theme: str = Field(default="", description="当天主题")
+    name: str = Field(..., description="点位名称")
+    address: str = Field(default="", description="展示地址")
+    latitude: float | None = Field(default=None, description="纬度")
+    longitude: float | None = Field(default=None, description="经度")
+    poi_id: str | None = Field(default=None, description="地图 POI ID")
+    image_url: str | None = Field(default=None, description="图片地址")
+    description: str = Field(default="", description="点位说明")
+    rating: float | None = Field(default=None, ge=0, description="地图评分")
+    average_cost: float | None = Field(default=None, ge=0, description="地图参考消费")
+    estimated_cost: float | None = Field(default=None, ge=0, description="行程预估消费")
+    tags: list[str] = Field(default_factory=list, description="地图标签")
+    distance_meters: float | None = Field(default=None, ge=0, description="距离")
+    tel: str | None = Field(default=None, description="联系电话")
+    business_area: str | None = Field(default=None, description="商圈")
+    open_time_today: str | None = Field(default=None, description="今日营业时间")
+    map_type: str | None = Field(default=None, description="地图 POI 类型")
+    recommended: bool = Field(default=False, description="是否最终推荐")
+    source_path: str | None = Field(default=None, description="对应原始 itinerary 字段路径")
+
+
+class DisplayRecommendationItem(BaseModel):
+    """餐饮/住宿推荐展示卡片。"""
+
+    key: str = Field(..., description="稳定 key")
+    kind: Literal["meal", "hotel"] = Field(..., description="推荐类型")
+    day_index: int = Field(..., ge=1, description="所属天数")
+    date: str | None = Field(default=None, description="所属日期")
+    theme: str = Field(default="", description="当天主题")
+    title: str = Field(..., description="卡片标题")
+    subtitle: str = Field(default="", description="卡片副标题")
+    reason: str = Field(default="", description="推荐理由")
+    image_url: str | None = Field(default=None, description="图片地址")
+    meta: list[str] = Field(default_factory=list, description="评分、价格、来源等元信息")
+    tags: list[str] = Field(default_factory=list, description="榜单或地图标签")
+    contact: str = Field(default="", description="电话和地址")
+    note: str = Field(default="", description="补充说明")
+    source_path: str | None = Field(default=None, description="对应原始 itinerary 字段路径")
+
+
+class DisplayDayCard(BaseModel):
+    """每日行程折叠卡片的结构化展示数据。"""
+
+    key: str = Field(..., description="稳定 key")
+    day_index: int = Field(..., ge=1, description="第几天")
+    title: str = Field(..., description="标题")
+    subtitle: str = Field(default="", description="副标题")
+    date: str | None = Field(default=None, description="日期")
+    theme: str = Field(default="", description="主题")
+    fields: list[DisplayTextItem] = Field(default_factory=list, description="卡片字段")
+    notes: list[str] = Field(default_factory=list, description="备注")
+    source_path: str | None = Field(default=None, description="对应原始 itinerary 字段路径")
+
+
+class DisplaySection(BaseModel):
+    """结果页可独立重排、隐藏或替换内容的展示区块。"""
+
+    key: str = Field(..., description="稳定区块标识")
+    title: str = Field(..., description="区块标题")
+    kind: Literal[
+        "overview",
+        "budget",
+        "day_budget",
+        "tips",
+        "map",
+        "weather",
+        "recommendations",
+        "poi_details",
+        "daily_plan",
+        "editor",
+    ] = Field(..., description="区块类型")
+    order: int = Field(..., ge=0, description="默认排序")
+    visible: bool = Field(default=True, description="是否默认展示")
+    summary: str = Field(default="", description="区块摘要")
+    item_keys: list[str] = Field(default_factory=list, description="区块引用的展示项 key")
+
+
+class ItineraryDisplay(BaseModel):
+    """前端结果页的结构化展示 JSON。"""
+
+    version: str = Field(default="itinerary-display-v1", description="展示结构版本")
+    title: str = Field(default="", description="结果页主标题")
+    subtitle: str = Field(default="", description="结果页副标题")
+    overview: list[DisplayTextItem] = Field(default_factory=list, description="概览字段")
+    plan_highlights: list[DisplayTextItem] = Field(default_factory=list, description="规划要点")
+    confirmations: list[DisplayTextItem] = Field(default_factory=list, description="待确认事项")
+    tips: list[str] = Field(default_factory=list, description="清洗后的旅行提示")
+    tip_items: list[DisplayChecklistItem] = Field(default_factory=list, description="可勾选旅行提示")
+    budget_items: list[DisplayBudgetItem] = Field(default_factory=list, description="总预算展示")
+    day_budget_items: list[DisplayBudgetItem] = Field(default_factory=list, description="按天预算展示")
+    map_points: list[DisplayMapPoint] = Field(default_factory=list, description="地图点位")
+    scenic_points: list[DisplayMapPoint] = Field(default_factory=list, description="景点点位")
+    hotel_recommendations: list[DisplayRecommendationItem] = Field(default_factory=list, description="住宿推荐")
+    meal_recommendations: list[DisplayRecommendationItem] = Field(default_factory=list, description="餐饮推荐")
+    day_cards: list[DisplayDayCard] = Field(default_factory=list, description="每日行程卡片")
+    sections: list[DisplaySection] = Field(default_factory=list, description="页面区块配置")
+
+
 class DayPlan(BaseModel):
     """单日行程安排。"""
 
@@ -189,6 +323,10 @@ class Itinerary(BaseModel):
     source_notes: list[str] = Field(
         default_factory=list,
         description="RAG 或规则生成产生的补充说明",
+    )
+    display: ItineraryDisplay | None = Field(
+        default=None,
+        description="结果页结构化展示 JSON，供前端和聊天优化器消费",
     )
 
 
@@ -263,3 +401,43 @@ class TripListResponse(BaseModel):
 
     total: int = Field(..., ge=0, description="列表总数")
     items: list[TripSummaryItem] = Field(default_factory=list, description="行程摘要列表")
+
+
+class ChatbotConversationMessage(BaseModel):
+    """聊天机器人历史消息。"""
+
+    role: Literal["user", "assistant"] = Field(..., description="消息角色")
+    content: str = Field(..., description="消息内容")
+
+
+class ChatbotSearchSource(BaseModel):
+    """聊天机器人联网查询返回的一条来源。"""
+
+    title: str = Field(default="", description="来源标题")
+    url: str = Field(default="", description="来源链接")
+    content: str = Field(default="", description="来源摘要")
+    raw_content: str | None = Field(default=None, description="来源原始内容")
+    published_date: str | None = Field(default=None, description="来源发布日期")
+    score: float | None = Field(default=None, description="相关度")
+
+
+class ChatbotMessageRequest(BaseModel):
+    """ChatUI 发送给后端 agent 的请求。"""
+
+    message: str = Field(..., min_length=1, description="用户当前消息")
+    trip_id: str | None = Field(default=None, description="当前结果页行程 ID")
+    current_itinerary: Itinerary | None = Field(default=None, description="当前结果页 itinerary")
+    history: list[ChatbotConversationMessage] = Field(
+        default_factory=list,
+        description="最近对话历史",
+    )
+
+
+class ChatbotMessageResponse(BaseModel):
+    """聊天机器人 agent 响应。"""
+
+    intent: Literal["ask", "update", "search"] = Field(..., description="识别出的用户意图")
+    reply: str = Field(..., description="给用户展示的回复")
+    reason: str = Field(default="", description="意图判断原因")
+    updated_itinerary: Itinerary | None = Field(default=None, description="更新后的结果页 itinerary")
+    sources: list[ChatbotSearchSource] = Field(default_factory=list, description="联网查询来源")

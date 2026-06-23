@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api.routes.chatbot import router as chatbot_router
 from app.api.routes.export import router as export_router
 from app.api.routes.trip import router as trip_router
 from app.api.routes.weather import router as weather_router
@@ -22,6 +23,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
         "http://localhost:4173",
         "http://127.0.0.1:4173",
         "http://localhost:8000",
@@ -40,6 +43,7 @@ def health_check() -> dict[str, str]:
 
 
 app.include_router(trip_router)
+app.include_router(chatbot_router)
 app.include_router(export_router)
 app.include_router(weather_router)
 
