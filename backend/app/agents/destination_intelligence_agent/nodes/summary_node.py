@@ -75,6 +75,46 @@ def _extract_summary_content(output: str, field_name: str, label: str) -> str:
     return ""
 
 
+def _build_first_summary_fallback(data: dict[str, Any]) -> str:
+    """Build a conservative paragraph draft when the LLM misses the JSON contract."""
+    title = str(data.get("title") or "研究部分").strip()
+    content = str(data.get("content") or "").strip()
+    trip_context = str(data.get("trip_context") or "").strip()
+    search_query = str(data.get("search_query") or "").strip()
+    raw_results = data.get("search_results") or []
+    if isinstance(raw_results, str):
+        search_results = [raw_results]
+    elif isinstance(raw_results, list):
+        search_results = [str(item).strip() for item in raw_results if str(item).strip()]
+    else:
+        search_results = []
+
+    lines = [
+        f"## {title}",
+        "",
+        "### 研究目标",
+        content or "围绕本段目标整理可执行旅行信息。",
+    ]
+    if trip_context:
+        lines.extend(["", "### 旅行请求", trip_context])
+    if search_query:
+        lines.extend(["", "### 已执行搜索", f"- {search_query}"])
+    if search_results:
+        lines.extend(["", "### 搜索结果摘录"])
+        for index, result in enumerate(search_results[:5], start=1):
+            lines.append(f"{index}. {result[:1200]}")
+    else:
+        lines.extend(["", "### 待补充", "- 本轮没有可用搜索结果，后续反思搜索需继续核查。"])
+    lines.extend(
+        [
+            "",
+            "### 待确认项",
+            "- 开放时间、票价、班次、库存和预约政策需在出行前通过官方渠道复核。",
+        ]
+    )
+    return "\n".join(lines).strip()
+
+
 class FirstSummaryNode(StateMutationNode):
     """根据搜索结果生成段落首次总结的节点"""
     
@@ -128,15 +168,20 @@ class FirstSummaryNode(StateMutationNode):
             logger.info("正在生成首次段落总结")
             
             # 调用LLM生成总结（流式，安全拼接UTF-8）
-            response = self.llm_client.stream_invoke_to_string(
-                SYSTEM_PROMPT_FIRST_SUMMARY,
-                message,
-            )
+            try:
+                response = self.llm_client.stream_invoke_to_string(
+                    SYSTEM_PROMPT_FIRST_SUMMARY,
+                    message,
+                )
+            except Exception as exc:
+                logger.warning("首次总结LLM调用失败，使用搜索结果兜底: {}", exc)
+                return _build_first_summary_fallback(data)
             
             # 处理响应
             processed_response = self.process_output(response)
             if not processed_response:
-                raise ValueError("首次总结响应不符合 paragraph_latest_state 输出契约")
+                processed_response = _build_first_summary_fallback(data)
+                logger.warning("首次总结响应不符合 paragraph_latest_state 输出契约，已使用兜底底稿")
             
             logger.info("成功生成首次段落总结")
             return processed_response

@@ -693,11 +693,28 @@ def _pick_best_place(keyword: str, city: str | None = None) -> dict[str, Any] | 
     return best_place
 
 
+def _pick_first_available_place(
+    keywords: list[str | None],
+    city: str | None = None,
+) -> dict[str, Any] | None:
+    seen: set[str] = set()
+    for keyword in keywords:
+        normalized = (keyword or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        place = _pick_best_place(normalized, city=city)
+        if place is not None:
+            return place
+    return None
+
+
 def _enrich_spot(spot: SpotItem, city: str | None = None) -> bool:
     """补全单个景点的地址、经纬度和 POI 信息。"""
-    place = _pick_best_place(spot.name, city=city)
-    if place is None and spot.location:
-        place = _pick_best_place(spot.location, city=city)
+    place = _pick_first_available_place(
+        [spot.map_query, spot.name, spot.location],
+        city=city,
+    )
 
     if place is None:
         query_address = spot.address or spot.location or spot.name
@@ -713,11 +730,24 @@ def _enrich_spot(spot: SpotItem, city: str | None = None) -> bool:
     return True
 
 
+def _enrich_meal(meal: MealItem, city: str | None = None) -> bool:
+    """按 LLM/报告给出的餐饮关键词补全单个餐饮 POI。"""
+    place = _pick_first_available_place(
+        [meal.map_query, meal.name, meal.address],
+        city=city,
+    )
+    if place is None:
+        return False
+    _copy_place_to_meal(meal, place)
+    return True
+
+
 def _enrich_hotel(hotel: HotelItem, city: str | None = None) -> bool:
     """补全单个酒店的地址和经纬度。"""
-    place = _pick_best_place(hotel.name, city=city)
-    if place is None and hotel.location:
-        place = _pick_best_place(hotel.location, city=city)
+    place = _pick_first_available_place(
+        [hotel.map_query, hotel.name, hotel.location],
+        city=city,
+    )
 
     if place is None:
         query_address = hotel.address or hotel.location or hotel.name
@@ -924,6 +954,11 @@ def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None
         if reference_spot is not None:
             for meal in day.meals:
                 try:
+                    if meal.map_query and _enrich_meal(meal, city=city or itinerary.destination):
+                        meal.is_recommended = True
+                        enriched_count += 1
+                        continue
+
                     meal_candidates = _build_meal_candidates_near_spot(meal, reference_spot)
                     day.meal_candidates.extend(meal_candidates)
                     if meal_candidates:
@@ -932,6 +967,8 @@ def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None
                         enriched_count += 1
                     elif _enrich_meal_near_spot(meal, reference_spot):
                         meal.is_recommended = True
+                        enriched_count += 1
+                    elif _enrich_meal(meal, city=city or itinerary.destination):
                         enriched_count += 1
                 except Exception:
                     continue

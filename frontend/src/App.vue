@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
-import type { Itinerary } from "./types";
+import type { Itinerary, TripDetailResponse } from "./types";
+import DeepPlanResult from "./views/DeepPlanResult.vue";
 import History from "./views/History.vue";
 import Home from "./views/Home.vue";
 import Result from "./views/Result.vue";
 
-const currentView = ref<"home" | "result" | "history">("home");
+const currentView = ref<"home" | "result" | "history" | "deep-result">("home");
 const latestItinerary = ref<Itinerary | null>(null);
+const latestDeepPlan = ref<TripDetailResponse | null>(null);
 
 function handleGenerated(itinerary: Itinerary) {
   latestItinerary.value = itinerary;
@@ -17,6 +19,11 @@ function handleGenerated(itinerary: Itinerary) {
 function openTrip(itinerary: Itinerary) {
   latestItinerary.value = itinerary;
   currentView.value = "result";
+}
+
+function openDeepPlan(detail: TripDetailResponse) {
+  latestDeepPlan.value = detail;
+  currentView.value = "deep-result";
 }
 
 function updateCurrentItinerary(itinerary: Itinerary) {
@@ -58,6 +65,17 @@ function updateCurrentItinerary(itinerary: Itinerary) {
         >
           历史列表
         </button>
+        <button
+          :class="[
+            'hero__tab',
+            { 'hero__tab--active': currentView === 'deep-result' },
+            { 'hero__tab--disabled': !latestDeepPlan }
+          ]"
+          :disabled="!latestDeepPlan"
+          @click="currentView = 'deep-result'"
+        >
+          深度规划
+        </button>
       </div>
     </header>
 
@@ -65,6 +83,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
       <Home
         v-if="currentView === 'home'"
         @generated="handleGenerated"
+        @deep-submitted="currentView = 'history'"
       />
       <Result
         v-else-if="currentView === 'result'"
@@ -74,9 +93,17 @@ function updateCurrentItinerary(itinerary: Itinerary) {
         @updated="updateCurrentItinerary"
       />
       <History
-        v-else
+        v-else-if="currentView === 'history'"
         :active="currentView === 'history'"
         @open-trip="openTrip"
+        @open-deep-plan="openDeepPlan"
+      />
+      <DeepPlanResult
+        v-else
+        :detail="latestDeepPlan"
+        @back-home="currentView = 'home'"
+        @open-trip="openTrip"
+        @view-history="currentView = 'history'"
       />
     </main>
   </div>

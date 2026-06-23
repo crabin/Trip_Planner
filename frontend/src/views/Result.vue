@@ -168,6 +168,98 @@ function buildSourceText(item: MealItem | HotelItem): string {
   return item.data_source ? sourceMap[item.data_source] || item.data_source : "";
 }
 
+const overviewLabels = [
+  "日期与天数",
+  "出行人",
+  "出发地",
+  "旅行模式与节奏",
+  "推荐结构",
+  "跨市交通",
+  "市内交通",
+  "逐晚住宿",
+  "预算口径",
+  "方案生成/信息核验日期",
+  "关键假设",
+  "⚠ 待确认项",
+  "待确认项",
+  "确认方法",
+];
+
+function findOverviewLabelPositions(summary: string) {
+  const positions = overviewLabels
+    .flatMap((label) => {
+      const normalizedLabel = label.replace(/^⚠\s*/, "");
+      return [`${label}：`, `${label}:`, `${normalizedLabel}：`, `${normalizedLabel}:`].map((marker) => ({
+        label: normalizedLabel,
+        marker,
+        index: summary.indexOf(marker),
+      }));
+    })
+    .filter((item) => item.index >= 0)
+    .sort((a, b) => a.index - b.index)
+    .filter((item, index, array) => index === 0 || item.index !== array[index - 1].index);
+
+  return positions.filter((item, index) => {
+    const previous = positions[index - 1];
+    return !previous || item.index >= previous.index + previous.marker.length;
+  });
+}
+
+function parseOverviewSummary(summary?: string | null) {
+  const normalizedSummary = (summary || "")
+    .replace(/\s+/g, " ")
+    .replace(/^一屏概览[：:]\s*/, "")
+    .trim();
+  const positions = findOverviewLabelPositions(normalizedSummary);
+  if (positions.length < 2) {
+    return [];
+  }
+
+  return positions
+    .map((position, index) => {
+      const valueStart = position.index + position.marker.length;
+      const valueEnd = positions[index + 1]?.index ?? normalizedSummary.length;
+      return {
+        label: position.label,
+        value: normalizedSummary.slice(valueStart, valueEnd).trim(),
+      };
+    })
+    .filter((item) => item.value);
+}
+
+const overviewFields = computed(() => parseOverviewSummary(props.itinerary?.summary));
+
+const overviewMetaItems = computed(() => {
+  if (!props.itinerary) {
+    return [];
+  }
+
+  const fieldMap = new Map(overviewFields.value.map((item) => [item.label, item.value]));
+  return [
+    {
+      label: "日期与天数",
+      value:
+        fieldMap.get("日期与天数") ||
+        `${props.itinerary.days[0]?.date || "待定"} 至 ${
+          props.itinerary.days[props.itinerary.days.length - 1]?.date || "待定"
+        }`,
+    },
+    { label: "出行人", value: fieldMap.get("出行人") || "待补充" },
+    { label: "出发地", value: fieldMap.get("出发地") || "待补充" },
+    { label: "旅行模式", value: fieldMap.get("旅行模式与节奏") || "待补充" },
+  ];
+});
+
+const overviewPlanItems = computed(() =>
+  overviewFields.value.filter((item) =>
+    ["推荐结构", "跨市交通", "市内交通", "逐晚住宿", "预算口径", "关键假设"].includes(item.label)
+  )
+);
+
+const overviewConfirmItems = computed(() =>
+  overviewFields.value.filter((item) => ["待确认项", "确认方法", "方案生成/信息核验日期"].includes(item.label))
+);
+
 const budgetItems = computed(() => {
   if (!props.itinerary) {
     return [];
@@ -571,7 +663,7 @@ async function handleEdit() {
     </aside>
 
     <div class="result-grid">
-      <section class="result-card">
+      <section class="result-card result-card--overview">
         <div class="result-card__title">{{ itinerary.destination }}旅行计划</div>
         <div class="info-row"><strong>行程 ID：</strong>{{ itinerary.trip_id }}</div>
         <div class="info-row">
@@ -580,7 +672,35 @@ async function handleEdit() {
           {{ itinerary.days[itinerary.days.length - 1]?.date || "待定" }}
         </div>
         <div class="info-row"><strong>地点：</strong>{{ itinerary.destination }}</div>
-        <div class="info-row summary-text">{{ itinerary.summary }}</div>
+        <div v-if="overviewFields.length" class="overview-rendered">
+          <div class="overview-meta-grid">
+            <article v-for="item in overviewMetaItems" :key="item.label" class="overview-meta-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
+
+          <div v-if="overviewPlanItems.length" class="overview-section">
+            <div class="overview-section__title">规划要点</div>
+            <div class="overview-section__grid">
+              <article v-for="item in overviewPlanItems" :key="item.label" class="overview-detail-card">
+                <span>{{ item.label }}</span>
+                <p>{{ item.value }}</p>
+              </article>
+            </div>
+          </div>
+
+          <div v-if="overviewConfirmItems.length" class="overview-section overview-section--confirm">
+            <div class="overview-section__title">确认事项</div>
+            <div class="overview-confirm-list">
+              <div v-for="item in overviewConfirmItems" :key="item.label" class="overview-confirm-item">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.value }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="info-row summary-text">{{ itinerary.summary }}</div>
         <div v-if="displayTips.length" class="overview-tips">
           <div class="overview-tips__title">旅行提示</div>
           <ul>
@@ -603,10 +723,13 @@ async function handleEdit() {
             <strong>¥{{ itinerary.estimated_budget.toFixed(0) }}</strong>
           </div>
         </div>
+      </section>
 
+      <section class="result-card result-card--weather-summary">
+        <div class="result-card__title">天气信息</div>
         <div class="compact-weather">
           <div class="compact-weather__header">
-            <span>天气信息</span>
+            <span>近期天气</span>
             <small>{{ itinerary.destination }}</small>
           </div>
           <div v-if="weatherLoading" class="compact-weather__state">加载中...</div>
@@ -1090,6 +1213,10 @@ async function handleEdit() {
   padding: 18px;
 }
 
+.result-card--overview {
+  grid-column: 1 / -1;
+}
+
 .result-card--map,
 .result-card--weather {
   min-height: 330px;
@@ -1112,6 +1239,96 @@ async function handleEdit() {
 
 .summary-text {
   margin-top: 14px;
+  white-space: pre-line;
+}
+
+.overview-rendered {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.overview-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.overview-meta-card,
+.overview-detail-card,
+.overview-confirm-item {
+  border: 1px solid rgba(98, 116, 164, 0.08);
+  background: #f8faff;
+}
+
+.overview-meta-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  min-height: 86px;
+  padding: 12px;
+  border-radius: 16px;
+}
+
+.overview-meta-card span,
+.overview-detail-card span,
+.overview-section__title {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.overview-meta-card strong {
+  color: #334155;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.overview-section {
+  display: grid;
+  gap: 10px;
+}
+
+.overview-section__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.overview-detail-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 16px;
+}
+
+.overview-detail-card p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.65;
+}
+
+.overview-confirm-list {
+  display: grid;
+  gap: 8px;
+}
+
+.overview-confirm-item {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.overview-confirm-item strong {
+  color: #5d66c3;
+}
+
+.overview-confirm-item span {
+  color: #475467;
+  line-height: 1.65;
 }
 
 .overview-tips {
@@ -1195,7 +1412,7 @@ async function handleEdit() {
 }
 
 .compact-weather {
-  margin-top: 14px;
+  margin-top: 0;
   padding: 12px;
   border-radius: 16px;
   background: #f8faff;
@@ -1226,7 +1443,7 @@ async function handleEdit() {
 
 .compact-weather__list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1772,6 +1989,15 @@ async function handleEdit() {
     grid-template-columns: 1fr;
   }
 
+  .overview-meta-grid,
+  .overview-section__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .overview-confirm-item {
+    grid-template-columns: 1fr;
+  }
+
   .budget-total {
     justify-items: start;
   }
@@ -1800,6 +2026,17 @@ async function handleEdit() {
     max-height: calc(100vh - 24px);
     padding: 14px;
     border-radius: 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .overview-meta-grid,
+  .overview-section__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-weather__list {
+    grid-template-columns: 1fr;
   }
 }
 </style>

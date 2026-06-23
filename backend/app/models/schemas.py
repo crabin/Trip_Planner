@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as DateType, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -68,6 +69,7 @@ class SpotItem(BaseModel):
     map_business_area: str | None = Field(default=None, description="地图服务商圈")
     map_open_time_today: str | None = Field(default=None, description="地图服务今日营业时间")
     map_open_time_week: str | None = Field(default=None, description="地图服务每周营业时间")
+    map_query: str | None = Field(default=None, description="地图服务检索关键词")
 
 
 class MealItem(BaseModel):
@@ -92,6 +94,7 @@ class MealItem(BaseModel):
     map_business_area: str | None = Field(default=None, description="地图服务商圈")
     map_open_time_today: str | None = Field(default=None, description="地图服务今日营业时间")
     map_open_time_week: str | None = Field(default=None, description="地图服务每周营业时间")
+    map_query: str | None = Field(default=None, description="地图服务检索关键词")
     data_source: str | None = Field(default=None, description="推荐数据来源，例如 amap/meituan/dianping")
     source_id: str | None = Field(default=None, description="第三方平台返回的商户或 POI ID")
     source_url: str | None = Field(default=None, description="第三方平台详情、预订或团购链接")
@@ -124,6 +127,7 @@ class HotelItem(BaseModel):
     map_business_area: str | None = Field(default=None, description="地图服务商圈")
     map_open_time_today: str | None = Field(default=None, description="地图服务今日营业时间")
     map_open_time_week: str | None = Field(default=None, description="地图服务每周营业时间")
+    map_query: str | None = Field(default=None, description="地图服务检索关键词")
     data_source: str | None = Field(default=None, description="推荐数据来源，例如 amap/meituan/dianping")
     source_id: str | None = Field(default=None, description="第三方平台返回的酒店或 POI ID")
     source_url: str | None = Field(default=None, description="第三方平台详情、预订或团购链接")
@@ -188,11 +192,42 @@ class Itinerary(BaseModel):
     )
 
 
+class DeepPlanSource(BaseModel):
+    """深度规划研究阶段保留的一条网页来源。"""
+
+    section_title: str = Field(default="", description="来源所属研究章节")
+    query: str = Field(default="", description="产生该来源的搜索查询")
+    title: str = Field(default="", description="来源标题")
+    url: str = Field(default="", description="来源链接")
+    content: str = Field(default="", description="来源摘要内容")
+    score: float | None = Field(default=None, description="搜索相关度")
+    published_date: str | None = Field(default=None, description="来源发布日期")
+
+
+class DeepPlanDocument(BaseModel):
+    """可直接供 Web 深度规划详情页消费的 JSON 文档。"""
+
+    markdown: str = Field(..., description="完整旅行攻略 Markdown")
+    sources: list[DeepPlanSource] = Field(default_factory=list, description="结构化研究来源")
+
+
 class TripDetailResponse(BaseModel):
     """查询已保存行程时返回的响应体。"""
 
     trip_id: str = Field(..., description="行程 ID")
-    itinerary: Itinerary = Field(..., description="已保存的完整行程")
+    plan_type: Literal["quick", "deep"] = Field(default="quick", description="规划类型")
+    status: Literal["generating", "completed", "failed"] = Field(
+        default="completed",
+        description="生成状态",
+    )
+    progress: int = Field(default=100, ge=0, le=100, description="生成进度")
+    display_title: str = Field(default="", description="历史卡片主标题")
+    detail_title: str = Field(default="", description="历史卡片详细标题")
+    start_date: DateType | None = Field(default=None, description="出行开始日期")
+    end_date: DateType | None = Field(default=None, description="出行结束日期")
+    itinerary: Itinerary | None = Field(default=None, description="快速规划完整行程")
+    deep_plan: DeepPlanDocument | None = Field(default=None, description="深度规划完整文档")
+    error_message: str | None = Field(default=None, description="失败原因")
     created_at: datetime | None = Field(default=None, description="创建时间")
     updated_at: datetime | None = Field(default=None, description="更新时间")
 
@@ -203,6 +238,22 @@ class TripSummaryItem(BaseModel):
     trip_id: str = Field(..., description="行程 ID")
     destination: str = Field(..., description="目的地")
     summary: str = Field(..., description="行程概述")
+    plan_type: Literal["quick", "deep"] = Field(default="quick", description="规划类型")
+    status: Literal["generating", "completed", "failed"] = Field(
+        default="completed",
+        description="生成状态",
+    )
+    progress: int = Field(default=100, ge=0, le=100, description="生成进度")
+    display_title: str = Field(default="", description="历史卡片主标题")
+    detail_title: str = Field(default="", description="历史卡片详细标题")
+    start_date: DateType | None = Field(default=None, description="出行开始日期")
+    end_date: DateType | None = Field(default=None, description="出行结束日期")
+    error_message: str | None = Field(default=None, description="失败原因")
+    has_detail: bool = Field(default=False, description="是否可打开任务详情")
+    has_itinerary: bool = Field(default=False, description="是否有结构化快速行程")
+    has_report: bool = Field(default=False, description="是否有独立 Markdown Report")
+    report_id: str | None = Field(default=None, description="关联 Report ID")
+    is_report_only: bool = Field(default=False, description="是否仅来自历史 Report 文件")
     created_at: datetime | None = Field(default=None, description="创建时间")
     updated_at: datetime | None = Field(default=None, description="更新时间")
 

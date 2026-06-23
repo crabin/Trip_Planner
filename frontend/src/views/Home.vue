@@ -3,11 +3,12 @@ import axios from "axios";
 import { computed, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
 
-import { generateTrip } from "../services/api";
-import type { Itinerary, TripRequestPayload } from "../types";
+import { generateDeepTrip, generateTrip } from "../services/api";
+import type { Itinerary, TripRequestPayload, TripSummaryItem } from "../types";
 
 const emit = defineEmits<{
   generated: [itinerary: Itinerary];
+  deepSubmitted: [item: TripSummaryItem];
 }>();
 
 const preferenceOptions = [
@@ -48,7 +49,7 @@ const formState = reactive({
   notes: "不想太早起床，希望安排一个适合看日落的地点。",
 });
 
-const isSubmitting = ref(false);
+const submittingMode = ref<"quick" | "deep" | null>(null);
 
 const dayCount = computed(() => {
   const start = new Date(formState.startDate);
@@ -57,8 +58,8 @@ const dayCount = computed(() => {
   return Number.isNaN(diff) ? 0 : Math.max(Math.floor(diff / 86400000) + 1, 0);
 });
 
-async function handleSubmit() {
-  const payload: TripRequestPayload = {
+function buildPayload(): TripRequestPayload {
+  return {
     destination: formState.destination,
     start_date: formState.startDate,
     end_date: formState.endDate,
@@ -70,27 +71,46 @@ async function handleSubmit() {
     hotel_level: formState.hotelLevel,
     special_notes: formState.notes,
   };
+}
 
-  isSubmitting.value = true;
+function showGenerationError(error: unknown, label: string) {
+  console.error(error);
+  if (axios.isAxiosError(error)) {
+    if (error.code === "ECONNABORTED") {
+      message.error(`${label}超时，模型返回较慢，请稍后再试。`);
+    } else if (error.response) {
+      message.error(`${label}失败：后端返回 ${error.response.status}。`);
+    } else {
+      message.error(`${label}失败，请检查前端到后端的连接。`);
+    }
+  } else {
+    message.error(`${label}失败，请检查后端地址或服务状态。`);
+  }
+}
+
+async function handleQuickSubmit() {
+  submittingMode.value = "quick";
   try {
-    const itinerary = await generateTrip(payload);
+    const itinerary = await generateTrip(buildPayload());
     message.success("行程生成成功，已切换到结果页。");
     emit("generated", itinerary);
   } catch (error) {
-    console.error(error);
-    if (axios.isAxiosError(error)) {
-      if (error.code === "ECONNABORTED") {
-        message.error("行程生成超时，模型返回较慢，请稍后再试。");
-      } else if (error.response) {
-        message.error(`行程生成失败：后端返回 ${error.response.status}。`);
-      } else {
-        message.error("行程生成失败，请检查前端到后端的连接。");
-      }
-    } else {
-      message.error("行程生成失败，请检查后端地址或服务状态。");
-    }
+    showGenerationError(error, "快速规划");
   } finally {
-    isSubmitting.value = false;
+    submittingMode.value = null;
+  }
+}
+
+async function handleDeepSubmit() {
+  submittingMode.value = "deep";
+  try {
+    const item = await generateDeepTrip(buildPayload());
+    message.success("深度规划已开始，可在历史列表中查看生成进度。");
+    emit("deepSubmitted", item);
+  } catch (error) {
+    showGenerationError(error, "深度规划提交");
+  } finally {
+    submittingMode.value = null;
   }
 }
 </script>
@@ -189,15 +209,24 @@ async function handleSubmit() {
     </div>
 
     <div class="submit-panel">
-      <button
-        class="submit-panel__button"
-        :disabled="isSubmitting"
-        @click="handleSubmit"
-      >
-        {{ isSubmitting ? "正在生成中..." : "开始规划" }}
-      </button>
+      <div class="submit-panel__actions">
+        <button
+          class="submit-panel__button submit-panel__button--quick"
+          :disabled="submittingMode !== null"
+          @click="handleQuickSubmit"
+        >
+          {{ submittingMode === "quick" ? "快速生成中..." : "快速规划" }}
+        </button>
+        <button
+          class="submit-panel__button submit-panel__button--deep"
+          :disabled="submittingMode !== null"
+          @click="handleDeepSubmit"
+        >
+          {{ submittingMode === "deep" ? "正在创建任务..." : "深度规划" }}
+        </button>
+      </div>
       <div class="submit-panel__status">
-        当前已接上 `/trip/generate`，生成成功后会直接展示真实 itinerary。
+        快速规划生成结构化行程；深度规划会进入后台研究，可在历史列表持续查看进度。
       </div>
     </div>
   </section>
@@ -272,6 +301,21 @@ async function handleSubmit() {
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 18px 35px rgba(120, 129, 225, 0.25);
+}
+
+.submit-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+}
+
+.submit-panel__button--quick {
+  background: linear-gradient(135deg, #6786eb 0%, #7b78df 100%);
+}
+
+.submit-panel__button--deep {
+  background: linear-gradient(135deg, #7656c9 0%, #a261cc 100%);
 }
 
 .submit-panel__button:disabled {

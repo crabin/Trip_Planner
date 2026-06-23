@@ -57,3 +57,4 @@ Thumbs.db
 .claude/
 # Destination Intelligence Agent runtime artifacts may contain trip details and sources.
 backend/destination_intelligence_streamlit_reports/
+.codegraphy/*

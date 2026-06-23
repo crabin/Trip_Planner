@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import re
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
 from .llms import LLMClient
@@ -150,7 +150,12 @@ class DestinationIntelligenceAgent:
             logger.warning(f"  ⚠️  未知的搜索工具: {tool_name}，使用默认基础搜索")
             return self.search_agency.basic_search_news(query)
     
-    def research(self, query: str, save_report: bool = True) -> str:
+    def research(
+        self,
+        query: str,
+        save_report: bool = True,
+        progress_callback: Callable[[int, str], None] | None = None,
+    ) -> str:
         """
         生成一份目标日期明确的目的地旅行攻略
         
@@ -166,21 +171,36 @@ class DestinationIntelligenceAgent:
         logger.info(f"{'='*60}")
         
         try:
+            def notify(progress: int, message: str) -> None:
+                if progress_callback is None:
+                    return
+                try:
+                    progress_callback(progress, message)
+                except Exception as callback_error:
+                    logger.warning(f"进度回调失败，继续生成攻略: {callback_error}")
+
+            notify(5, "正在准备深度研究")
+
             # 每次研究都是一份独立攻略，避免复用实例时累积上一次的段落和报告。
             self.state = State(query=query)
 
             # Step 1: 生成报告结构
             self._generate_report_structure(query)
+            notify(12, "攻略结构已生成")
             
             # Step 2: 处理每个段落
+            self._web_progress_callback = notify
             self._process_paragraphs()
             
             # Step 3: 生成最终报告
+            notify(90, "正在整合完整攻略")
             final_report = self._generate_final_report()
             
             # Step 4: 保存报告
             if save_report:
                 self._save_report(final_report)
+
+            notify(100, "深度规划已完成")
             
             logger.info(f"\n{'='*60}")
             logger.info("目的地旅行攻略生成完成！")
@@ -212,6 +232,7 @@ class DestinationIntelligenceAgent:
     def _process_paragraphs(self):
         """处理所有段落"""
         total_paragraphs = len(self.state.paragraphs)
+        progress_callback = getattr(self, "_web_progress_callback", None)
         
         for i in range(total_paragraphs):
             logger.info(f"\n[步骤 2.{i+1}] 处理段落: {self.state.paragraphs[i].title}")
@@ -228,6 +249,9 @@ class DestinationIntelligenceAgent:
             
             progress = (i + 1) / total_paragraphs * 100
             logger.info(f"段落处理完成 ({progress:.1f}%)")
+            if progress_callback is not None:
+                web_progress = 12 + round((i + 1) / total_paragraphs * 73)
+                progress_callback(web_progress, f"已完成 {i + 1}/{total_paragraphs} 个研究章节")
     
     def _initial_search_and_summary(self, paragraph_index: int):
         """执行初始搜索和总结"""

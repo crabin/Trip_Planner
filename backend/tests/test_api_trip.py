@@ -11,7 +11,13 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.api.main import app  # noqa: E402
+import app.api.main as api_main  # noqa: E402
 import app.api.routes.export as export_route  # noqa: E402
+import app.api.routes.trip as trip_route  # noqa: E402
+from app.services.storage_service import (  # noqa: E402
+    delete_trip_by_trip_id,
+    fail_deep_plan,
+)
 import app.services.trip_service as trip_service  # noqa: E402
 
 client = TestClient(app)
@@ -69,11 +75,15 @@ def test_generate_trip_rejects_invalid_request() -> None:
 
 
 def test_root_endpoint_returns_running_message() -> None:
-    """测试根路径 / 能返回服务启动提示。"""
+    """根路径优先提供已构建 Web 首页，未构建时保留启动提示。"""
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.json() == {"message": "Trip Planner Demo backend is running."}
+    if api_main.FRONTEND_DIST.is_dir():
+        assert response.headers["content-type"].startswith("text/html")
+        assert '<div id="app"></div>' in response.text
+    else:
+        assert response.json() == {"message": "Trip Planner Demo backend is running."}
 
 
 def test_health_endpoint_returns_ok_status() -> None:
@@ -304,3 +314,26 @@ def test_generate_trip_response_includes_rag_context() -> None:
 
     assert len(data["source_notes"]) >= 2
     assert "大理" in joined_notes
+
+
+def test_deep_generate_returns_accepted_history_record_immediately(monkeypatch) -> None:
+    """深度规划提交只创建任务，不等待真实 Agent 完成。"""
+    monkeypatch.setattr(trip_route, "run_deep_planning_job", lambda trip_id, request: None)
+
+    response = client.post("/trip/deep-generate", json=build_generate_payload())
+    assert response.status_code == 202
+    item = response.json()
+
+    try:
+        assert item["plan_type"] == "deep"
+        assert item["status"] == "generating"
+        assert item["progress"] == 3
+        assert "大理" in item["display_title"]
+
+        history = client.get("/trip").json()["items"]
+        assert any(entry["trip_id"] == item["trip_id"] for entry in history)
+        assert client.get(f"/trip/{item['trip_id']}").status_code == 409
+        assert client.delete(f"/trip/{item['trip_id']}").status_code == 409
+    finally:
+        fail_deep_plan(item["trip_id"], "test cleanup")
+        delete_trip_by_trip_id(item["trip_id"])

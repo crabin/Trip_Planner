@@ -7,6 +7,7 @@ import type {
   TripListResponse,
   TripRequestPayload,
   TripSaveResponse,
+  TripSummaryItem,
   WeatherForecastResponse,
 } from "../types";
 
@@ -20,6 +21,13 @@ const api = axios.create({
 
 export async function generateTrip(payload: TripRequestPayload): Promise<Itinerary> {
   const response = await api.post<Itinerary>("/trip/generate", payload);
+  return response.data;
+}
+
+export async function generateDeepTrip(
+  payload: TripRequestPayload
+): Promise<TripSummaryItem> {
+  const response = await api.post<TripSummaryItem>("/trip/deep-generate", payload);
   return response.data;
 }
 
@@ -45,6 +53,29 @@ export async function listTrips(): Promise<TripListResponse> {
 export async function getTripDetail(tripId: string): Promise<TripDetailResponse> {
   const response = await api.get<TripDetailResponse>(`/trip/${tripId}`);
   return response.data;
+}
+
+export async function getTripReport(reportId: string): Promise<TripDetailResponse> {
+  const response = await api.get<TripDetailResponse>(`/trip/reports/${encodeURIComponent(reportId)}`);
+  return response.data;
+}
+
+export async function getReportItinerary(reportId: string, force = false): Promise<Itinerary> {
+  const response = await api.get<Itinerary>(`/trip/reports/${encodeURIComponent(reportId)}/itinerary`, {
+    params: force ? { force: true } : undefined,
+  });
+  return response.data;
+}
+
+export async function getDeepPlanItinerary(tripId: string, force = false): Promise<Itinerary> {
+  const response = await api.get<Itinerary>(`/trip/${encodeURIComponent(tripId)}/deep-itinerary`, {
+    params: force ? { force: true } : undefined,
+  });
+  return response.data;
+}
+
+export function getReportMarkdownUrl(reportId: string): string {
+  return `${API_BASE_URL}/trip/reports/${encodeURIComponent(reportId)}/markdown`;
 }
 
 export async function deleteTrip(tripId: string): Promise<void> {

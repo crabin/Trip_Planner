@@ -2,6 +2,66 @@
 
 ## 2026-06-22
 
+- Started report-aware history follow-up using `planning-with-files`; added Phases 18-21.
+- Preserving all existing uncommitted Web integration and unrelated RAG changes.
+- CodeGraph confirmed the current detail button is coupled to `status === completed` and deep documents are opened through the same action.
+- Inventoried five existing Markdown reports and four state files; one Xiamen state file is corrupt/zero-byte and will use Markdown fallback metadata.
+- Queried the current database and confirmed the quick 汕头 trip matches the 汕头 report; completed Phase 18 and started report catalog/API implementation.
+- Implemented cached/tolerant Report discovery, state/source parsing, destination/date matching, report-only history summaries, JSON/raw-Markdown endpoints, merged deletion, and future Web-agent output into the Streamlit report directory.
+- Added explicit history capability fields so itinerary detail and Report availability are independent.
+- Report catalog smoke check passed: 7 merged items; 汕头 quick trip has detail + itinerary + Report, four unmatched reports are report-only deep items, and the other quick trips retain detail.
+- Updated frontend types/API/history actions: details use capability flags, report-only details load JSONized report data, and “查看 Report” opens raw Markdown separately.
+- Completed Phases 19-20 and started regression verification.
+- Added three report-catalog regressions covering valid source extraction, corrupt-state fallback, quick/report deduplication with all capabilities, JSON/raw endpoints, and report-only deletion; all pass.
+- Frontend type-check and production build pass with the report-aware three-button history UI; only the existing Vite large-chunk advisory remains.
+- Live Uvicorn catalog smoke check returned seven items with correct capabilities and loaded the matched 汕头 JSON report (11,671 Markdown characters, 110 sources).
+- The smoke check exposed report-range presentation using a later itinerary date and a mistaken HEAD request; both were logged and corrected.
+- First full-suite run after report integration reached 118 passes with one FakeAgent constructor mismatch; updated the test double to accept and verify the new Report output configuration.
+- Corrected FakeAgent regression passed, then the full backend suite passed: 119 tests in 277.94 seconds.
+- Final Uvicorn smoke passed: 汕头 range is 2026-07-02 → 2026-07-06, JSON detail exposes 110 sources, raw Markdown GET returned 200, and `/` served the Vue app.
+- Final targeted ruff, frontend build, CodeGraph post-edit audit, and `git diff --check` passed.
+- Completed Phase 21; all 21 planning phases are complete.
+
+- Started the destination-intelligence Web integration goal using `planning-with-files`.
+- Restored the completed destination-agent optimization plan; no unsynced session context was reported.
+- Reused the already-active desktop goal after a duplicate `create_goal` attempt was rejected.
+- Confirmed `.codegraph/` is present and will use CodeGraph before code reads/searches.
+- Found pre-existing uncommitted RAG changes in `backend/app/rag/vector_db.py` and `backend/tests/test_rag_retriever.py`; marked them out of scope and preserved.
+- Added Phases 12-17 for architecture mapping, async lifecycle design, backend/frontend implementation, and verification.
+- First CodeGraph pass mapped the destination agent and Vue view-switching flow.
+- Confirmed the Web currently uses one synchronous form action and one itinerary-only result channel; history/detail APIs and frontend types need a plan-kind/status discriminator.
+- Captured the exact Streamlit source fields that the deep-plan detail API/UI must preserve.
+- Mapped existing `/trip` list/detail/delete, `/trip/save`, storage service, frontend API/types, and the quick planner's non-auto-save behavior.
+- Identified additive database migration and a backward-compatible tagged response as key design constraints.
+- Read the exact `TripRecord` and backend schema definitions; confirmed the current non-null itinerary column and mandatory itinerary-only detail response.
+- Read full `Home.vue` and `History.vue`; planned split actions, immediate history navigation, and active-view-only polling for generating jobs.
+- Inspected backend/frontend dependencies, SQLite configuration, storage tests, and destination-agent settings.
+- Completed Phase 12 architecture mapping and selected the async lifecycle/API contract; Phase 13 is in progress.
+- Confirmed destination-agent state already contains all source fields and selected a backward-compatible progress callback contract.
+- Read exact database model and destination-agent imports immediately before backend implementation.
+- Completed Phase 13 and started backend implementation.
+- Added tagged quick/deep record fields, additive SQLite migration, deep job schemas, immediate placeholder persistence, progress/completion/failure storage, background research service, source flattening, and `/trip/deep-generate`.
+- Added a backward-compatible destination-agent progress callback with structure/section/formatting milestones.
+- First backend gate: targeted ruff passed; 29 tests passed and one legacy monkeypatch test failed because `_process_paragraphs` received a new keyword argument. Logged and fixing without changing the old call signature.
+- Restored the original no-argument internal agent call; the previously failing regression test now passes.
+- Added focused storage, API, and request-integration tests for deep planning; all four new targeted tests pass and targeted ruff passes.
+- Completed Phase 14 and started Phase 15.
+- Implemented frontend plan discriminators/API, split quick/deep controls, immediate history navigation, active-job polling, disabled generating actions, failure state, and a sanitized Markdown/source detail view.
+- Added `marked` and `dompurify`; npm reported 4 dependency vulnerabilities (1 moderate, 3 high), left unchanged to avoid unrelated audit-fix upgrades.
+- Frontend type-check and production build passed; Vite emitted only its existing large-bundle advisory.
+- Added FastAPI static hosting so the exact `uvicorn app.api.main:app --host 0.0.0.0 --port 8000` command serves the built Vue homepage while API routes remain available.
+- Completed Phase 15 and started Phase 16 verification.
+- Replaced deprecated naive `datetime.utcnow()` calls in the touched record/storage paths with an explicit UTC-to-naive helper.
+- Exact Uvicorn smoke test exposed eager destination-agent dependency loading (`loguru` missing in the launcher environment); logged it and moved the agent import inside the background job.
+- Exact bare `uvicorn app.api.main:app` startup now succeeds; `/` served the Vue HTML and `/health` plus `/trip` returned 200.
+- A combined verification command used the wrong repository-root paths for both subprojects; logged it and split the rerun by working directory.
+- Corrected verification: three focused backend tests passed and the frontend production build passed; ruff alone found one unused lazy-import type symbol, now removed.
+- Full backend suite completed with 115 passes and one expected root-contract failure: the old test required JSON even when the new built Web homepage is available. Updated the test to cover built and unbuilt frontend environments.
+- Root contract regression test now passes in the built-frontend environment.
+- Final full backend suite passed: 116 tests in 324.54 seconds.
+- Final targeted ruff and `git diff --check` passed; CodeGraph post-edit audit showed no stale-index warning.
+- Completed Phases 16 and 17. The requested Web integration is complete; no paid live destination-agent run was performed.
+
 - Started destination-intelligence travel-guide optimization using `planning-with-files`.
 - Restored the prior completed AMap plan and confirmed there was no unsynced session context.
 - Existing worktree change is limited to user-owned `AGENTS.md`; it will be preserved.
@@ -66,3 +126,17 @@
 - Updated frontend types/result page so recommendation cards show only selected hotel/meals while `AmapTripMap` receives all hotel/meal candidates.
 - Fixed a regression where explicit LLM meal names were overwritten; only placeholder meal names are now replaced by nearby restaurant recommendations.
 - Verification complete: ruff passed, local-life/map tests passed, frontend build passed, combined backend tests passed, and full backend test suite passed with 67 tests and 10 existing UTC deprecation warnings.
+
+## 2026-06-23
+
+- Resumed the active goal with `planning-with-files` for report-to-result conversion quality.
+- User identified `report_itinerary_0036c3c50a50ea85` (Beijing) as a bad converted result: generic summary, incorrect prices, noisy/incorrect map POIs, and placeholder餐饮/酒店 wording.
+- Added Phase 22 to repair conversion fidelity: overview extraction, no guessed prices, better POI keyword extraction, full day narrative preservation, and removal of “根据深度规划 Report 提取...” placeholder text.
+- User updated the objective: extraction rules should not be hardcoded and must use LLM capability. Adjusting implementation to LLM-first structured extraction with deterministic fallback only.
+- User added that the deep-planning page “转换到结果页” button should call the conversion interface again using the current report, so this button must force regeneration rather than reuse stale cached `report_itinerary_*` data.
+- Implemented LLM-first report-to-itinerary extraction with compact prompt input. The LLM extracts overview, day structure, map POI names, and AMap query keywords; deterministic parsing remains only as fallback when LLM is unavailable or times out.
+- Added `map_query` to spot/meal/hotel schemas and made map enrichment prefer that LLM-generated query before generic names.
+- Fixed report conversion budget handling: report total budget remains itinerary total; item-level costs stay unknown/0 unless real map/reference data exists, preventing the 10000元 budget from being repeated as every ticket/meal price.
+- Wired deep-planning page “转换到结果页” to call conversion APIs with `force=true`, while history details can still reuse cache.
+- Real Beijing force-smoke passed: marker `report-itinerary-conversion:llm-v1`, D1 spots = `王府井 / 北京 王府井`, budget total = 10000, no placeholder text.
+- Verification passed: report/map focused tests (13), targeted ruff, frontend build, and `git diff --check`.

@@ -26,6 +26,9 @@ from app.config import (
 
 
 DATA_DIR = BACKEND_DIR / "data"
+DESTINATION_INTELLIGENCE_REPORTS_DIR = (
+    BACKEND_DIR / "destination_intelligence_streamlit_reports"
+)
 LOCAL_EMBEDDING_INDEX_PATH = BACKEND_DIR / "db" / "guide_embeddings.json"
 _OLLAMA_PLACEHOLDER_API_KEY = "ollama"
 logger = logging.getLogger(__name__)
@@ -39,9 +42,24 @@ DESTINATION_BY_SOURCE = {
 }
 
 
-def _resolve_chunk_destination(source_name: str) -> str:
+def _resolve_chunk_destination(
+    source_name: str,
+    markdown_text: str | None = None,
+) -> str:
     """从攻略文件名解析目的地，作为检索硬过滤 metadata。"""
-    return DESTINATION_BY_SOURCE.get(source_name, Path(source_name).stem.split("_", 1)[0])
+    source_basename = Path(source_name).name
+    known_destination = DESTINATION_BY_SOURCE.get(source_basename)
+    if known_destination:
+        return known_destination
+
+    # destination_intelligence_agent 的报告以“# 汕头 2026-...”开头，标题比带有
+    # 完整用户 query 和时间戳的文件名更适合作为目的地 metadata。
+    if markdown_text:
+        title_match = re.search(r"^#\s+([^\s（(：:]+)", markdown_text, flags=re.MULTILINE)
+        if title_match:
+            return title_match.group(1).strip()
+
+    return Path(source_basename).stem.split("_", 1)[0]
 
 
 def _split_markdown_into_chunks(markdown_text: str, source_name: str) -> list[dict[str, str]]:
@@ -49,7 +67,7 @@ def _split_markdown_into_chunks(markdown_text: str, source_name: str) -> list[di
     chunks: list[dict[str, str]] = []
     current_title = "文档开头"
     current_lines: list[str] = []
-    destination = _resolve_chunk_destination(source_name)
+    destination = _resolve_chunk_destination(source_name, markdown_text)
 
     for line in markdown_text.splitlines():
         stripped = line.strip()
@@ -92,12 +110,28 @@ def _build_document_text(chunk: dict[str, str]) -> str:
     return f"{chunk['title']}\n{chunk['text']}"
 
 
+def _iter_guide_files() -> list[tuple[Path, str]]:
+    """返回内置攻略和 destination intelligence 报告及其可追溯来源名。"""
+    guide_files = [(path, path.name) for path in sorted(DATA_DIR.glob("*.md*"))]
+    if DESTINATION_INTELLIGENCE_REPORTS_DIR.exists():
+        guide_files.extend(
+            (
+                path,
+                path.relative_to(BACKEND_DIR).as_posix(),
+            )
+            for path in sorted(
+                DESTINATION_INTELLIGENCE_REPORTS_DIR.glob("travel_guide_*.md")
+            )
+        )
+    return guide_files
+
+
 def load_guide_chunks() -> list[dict[str, str]]:
-    """读取 backend/data 下的攻略文件，并切分成可检索片段。"""
+    """读取内置攻略和 destination intelligence 报告并切分为检索片段。"""
     chunks: list[dict[str, str]] = []
-    for guide_file in sorted(DATA_DIR.glob("*.md*")):
+    for guide_file, source_name in _iter_guide_files():
         text = guide_file.read_text(encoding="utf-8")
-        raw_chunks = _split_markdown_into_chunks(text, guide_file.name)
+        raw_chunks = _split_markdown_into_chunks(text, source_name)
         for chunk in raw_chunks:
             chunks.append(
                 {
@@ -584,10 +618,33 @@ def search_guide_chunks(
         top_k=top_k,
         destination=destination,
     )
-    if chroma_results:
-        return chroma_results
-    return _search_guide_chunks_by_keywords(
+    keyword_results = _search_guide_chunks_by_keywords(
         query=query,
         top_k=top_k,
         destination=destination,
     )
+
+    # destination_intelligence_agent 会持续产出新报告，而持久化 Chroma 可能尚未
+    # 重新 ingest。把本地报告的精确关键词命中并入候选，保证报告保存后即可被规划器
+    # 使用；后续 reranker 会统一对这些候选重新排序。
+    report_results = [
+        chunk
+        for chunk in keyword_results
+        if chunk.get("source", "").startswith(
+            "destination_intelligence_streamlit_reports/"
+        )
+    ]
+    if not chroma_results:
+        return keyword_results
+    if not report_results:
+        return chroma_results
+
+    merged_results: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for chunk in [*report_results, *chroma_results]:
+        identity = (chunk.get("source", ""), chunk.get("title", ""))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        merged_results.append(chunk)
+    return merged_results[:top_k]

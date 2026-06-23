@@ -7,12 +7,24 @@ import sys
 import time
 from typing import Any, Optional
 
-from loguru import logger
-
 if not __package__:
     backend_dir = Path(__file__).resolve().parents[4]
     if str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
+
+try:
+    from loguru import logger
+except ImportError:
+    import logging
+
+    class _FallbackLogger:
+        def __init__(self) -> None:
+            self._logger = logging.getLogger(__name__)
+
+        def warning(self, message: str, *args: Any) -> None:
+            self._logger.warning(message.format(*args) if args else message)
+
+    logger = _FallbackLogger()
 
 from app import config
 
@@ -175,4 +187,3 @@ class LLMClient:
         time_prefix = f"今天的实际时间是{current_time}"
         human_prompt = f"{time_prefix}\n{user_prompt}" if user_prompt else time_prefix
         return [("system", system_prompt), ("human", human_prompt)]
-

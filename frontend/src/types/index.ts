@@ -41,6 +41,7 @@ export interface SpotItem {
   map_business_area?: string | null;
   map_open_time_today?: string | null;
   map_open_time_week?: string | null;
+  map_query?: string | null;
   data_source?: string | null;
   source_id?: string | null;
   source_url?: string | null;
@@ -71,6 +72,7 @@ export interface MealItem {
   map_business_area?: string | null;
   map_open_time_today?: string | null;
   map_open_time_week?: string | null;
+  map_query?: string | null;
   data_source?: string | null;
   source_id?: string | null;
   source_url?: string | null;
@@ -101,6 +103,7 @@ export interface HotelItem {
   map_business_area?: string | null;
   map_open_time_today?: string | null;
   map_open_time_week?: string | null;
+  map_query?: string | null;
   data_source?: string | null;
   source_id?: string | null;
   source_url?: string | null;
@@ -163,6 +166,19 @@ export interface TripSummaryItem {
   trip_id: string;
   destination: string;
   summary: string;
+  plan_type: "quick" | "deep";
+  status: "generating" | "completed" | "failed";
+  progress: number;
+  display_title: string;
+  detail_title: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  error_message?: string | null;
+  has_detail: boolean;
+  has_itinerary: boolean;
+  has_report: boolean;
+  report_id?: string | null;
+  is_report_only: boolean;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -174,9 +190,33 @@ export interface TripListResponse {
 
 export interface TripDetailResponse {
   trip_id: string;
-  itinerary: Itinerary;
+  plan_type: "quick" | "deep";
+  status: "generating" | "completed" | "failed";
+  progress: number;
+  display_title: string;
+  detail_title: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  itinerary?: Itinerary | null;
+  deep_plan?: DeepPlanDocument | null;
+  error_message?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface DeepPlanSource {
+  section_title: string;
+  query: string;
+  title: string;
+  url: string;
+  content: string;
+  score?: number | null;
+  published_date?: string | null;
+}
+
+export interface DeepPlanDocument {
+  markdown: string;
+  sources: DeepPlanSource[];
 }
 
 export interface WeatherForecastDay {

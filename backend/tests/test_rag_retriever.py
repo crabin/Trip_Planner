@@ -13,6 +13,46 @@ import app.rag.retriever as retriever  # noqa: E402
 import app.rag.vector_db as vector_db  # noqa: E402
 
 
+def test_load_guide_chunks_includes_destination_intelligence_reports(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """测试目的地情报报告会进入知识库，并从一级标题识别目的地。"""
+    data_dir = tmp_path / "data"
+    reports_dir = tmp_path / "destination_intelligence_streamlit_reports"
+    data_dir.mkdir()
+    reports_dir.mkdir()
+    (data_dir / "dali_guide.md").write_text(
+        "# 大理\n\n## 古城\n慢游。",
+        encoding="utf-8",
+    )
+    report_path = reports_dir / "travel_guide_复杂用户查询_20260622.md"
+    report_path.write_text(
+        "# 汕头 2026-07-02至2026-07-06（5天4晚）旅行攻略\n\n"
+        "## 每日行程\n\n### D1｜老城慢逛\n小公园开埠区。",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(vector_db, "BACKEND_DIR", tmp_path)
+    monkeypatch.setattr(vector_db, "DATA_DIR", data_dir)
+    monkeypatch.setattr(
+        vector_db,
+        "DESTINATION_INTELLIGENCE_REPORTS_DIR",
+        reports_dir,
+    )
+
+    chunks = vector_db.load_guide_chunks()
+    report_chunks = [
+        chunk
+        for chunk in chunks
+        if chunk["source"].startswith("destination_intelligence_streamlit_reports/")
+    ]
+
+    assert report_chunks
+    assert {chunk["destination"] for chunk in report_chunks} == {"汕头"}
+    assert any(chunk["title"] == "D1｜老城慢逛" for chunk in report_chunks)
+
+
 def test_retrieve_travel_guide_formats_chunks_as_text(monkeypatch) -> None:
     """测试 retriever 会把检索结果格式化成可直接引用的文本片段。"""
 
@@ -293,6 +333,47 @@ def test_search_guide_chunks_falls_back_to_keywords_for_ollama_without_json_inde
 
     assert results == [{"title": "关键词命中", "text": "关键词兜底成功。", "source": "local.md"}]
     assert not (tmp_path / "guide_embeddings.json").exists()
+
+
+def test_search_guide_chunks_merges_fresh_destination_report_ahead_of_stale_chroma(
+    monkeypatch,
+) -> None:
+    """测试无需重建旧 Chroma，刚生成的报告也能立刻进入检索候选。"""
+    monkeypatch.setattr(
+        vector_db,
+        "_search_guide_chunks_by_chroma",
+        lambda **kwargs: [
+            {
+                "title": "旧版通用攻略",
+                "text": "旧索引内容。",
+                "source": "shantou_guide.md",
+                "destination": "汕头",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        vector_db,
+        "_search_guide_chunks_by_keywords",
+        lambda **kwargs: [
+            {
+                "title": "2026-07-04 D3｜南澳精选海边日",
+                "text": "青澳湾为主，少点位慢游。",
+                "source": "destination_intelligence_streamlit_reports/travel_guide_汕头.md",
+                "destination": "汕头",
+            }
+        ],
+    )
+
+    results = vector_db.search_guide_chunks(
+        "汕头 南澳 慢节奏",
+        top_k=2,
+        destination="汕头",
+    )
+
+    assert [chunk["title"] for chunk in results] == [
+        "2026-07-04 D3｜南澳精选海边日",
+        "旧版通用攻略",
+    ]
 
 
 def test_search_guide_chunks_falls_back_when_chroma_count_fails(monkeypatch) -> None:

@@ -9,10 +9,16 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.models.db_models import TripRecord  # noqa: E402
-from app.models.schemas import TripRequest  # noqa: E402
+from app.models.schemas import DeepPlanDocument, DeepPlanSource, TripRequest  # noqa: E402
 from app.services.storage_service import (  # noqa: E402
+    complete_deep_plan,
+    create_deep_plan,
+    delete_trip_by_trip_id,
+    fail_deep_plan,
     get_itinerary_by_trip_id,
+    list_saved_itineraries,
     save_itinerary,
+    update_deep_plan_progress,
 )
 from app.services.trip_service import generate_trip_itinerary  # noqa: E402
 from app.config import SessionLocal  # noqa: E402
@@ -84,4 +90,63 @@ def test_get_itinerary_by_trip_id_returns_none_for_missing_trip() -> None:
     trip_detail = get_itinerary_by_trip_id("trip_not_exists")
     assert trip_detail is None
 
+
+def test_deep_plan_is_visible_while_generating_and_cannot_be_deleted() -> None:
+    item = create_deep_plan(build_trip_request())
+    try:
+        assert item.plan_type == "deep"
+        assert item.status == "generating"
+        assert item.progress == 3
+        assert "大理" in item.display_title
+
+        saved = next(
+            entry for entry in list_saved_itineraries().items if entry.trip_id == item.trip_id
+        )
+        assert saved.detail_title.startswith("大理 3日深度旅行攻略")
+        assert delete_trip_by_trip_id(item.trip_id) == "generating"
+    finally:
+        fail_deep_plan(item.trip_id, "test cleanup")
+        delete_trip_by_trip_id(item.trip_id)
+
+
+def test_completed_deep_plan_round_trips_markdown_and_sources() -> None:
+    item = create_deep_plan(build_trip_request())
+    try:
+        update_deep_plan_progress(item.trip_id, 52, "已完成 3/5 个研究章节")
+        generating = get_itinerary_by_trip_id(item.trip_id)
+        assert generating is not None
+        assert generating.progress == 52
+        assert generating.itinerary is None
+
+        complete_deep_plan(
+            item.trip_id,
+            DeepPlanDocument(
+                markdown="# 大理深度旅行攻略\n\n完整内容",
+                sources=[
+                    DeepPlanSource(
+                        section_title="交通与住宿",
+                        query="大理交通",
+                        title="官方交通信息",
+                        url="https://example.com/source",
+                        content="来源摘要",
+                        score=0.9,
+                        published_date="2026-06-01",
+                    )
+                ],
+            ),
+        )
+
+        completed = get_itinerary_by_trip_id(item.trip_id)
+        assert completed is not None
+        assert completed.status == "completed"
+        assert completed.progress == 100
+        assert completed.deep_plan is not None
+        assert completed.deep_plan.markdown.startswith("# 大理")
+        assert completed.deep_plan.sources[0].section_title == "交通与住宿"
+        assert delete_trip_by_trip_id(item.trip_id) == "deleted"
+    finally:
+        detail = get_itinerary_by_trip_id(item.trip_id)
+        if detail is not None:
+            fail_deep_plan(item.trip_id, "test cleanup")
+            delete_trip_by_trip_id(item.trip_id)
 

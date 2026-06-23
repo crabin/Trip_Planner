@@ -142,6 +142,31 @@ def test_invalid_reflection_summary_keeps_last_good_summary() -> None:
     assert updated.paragraphs[paragraph_index].research.latest_summary == "已核实的原始行程"
 
 
+def test_invalid_first_summary_contract_falls_back_to_search_digest() -> None:
+    state = State(query="厦门旅行")
+    paragraph_index = state.add_paragraph("交通与住宿", "核查到离交通和住宿区域")
+    node = FirstSummaryNode(FakeLLM('{"unexpected":"invalid contract"}'))
+
+    updated = node.mutate_state(
+        {
+            "trip_context": "2026年7月长沙到厦门慢节奏旅行",
+            "title": "交通与住宿",
+            "content": "核查到离交通和住宿区域",
+            "search_query": "厦门 机场 高铁 住宿 区域",
+            "search_results": [
+                "标题: 厦门交通攻略\nURL: https://example.com\n内容: 厦门北站可接驳地铁。"
+            ],
+        },
+        state,
+        paragraph_index,
+    )
+
+    summary = updated.paragraphs[paragraph_index].research.latest_summary
+    assert "交通与住宿" in summary
+    assert "厦门 机场 高铁 住宿 区域" in summary
+    assert "厦门北站可接驳地铁" in summary
+
+
 def test_first_summary_extracts_valid_json_before_trailing_text() -> None:
     node = FirstSummaryNode(FakeLLM(""))
     response = '{"paragraph_latest_state":"已核实首版攻略"}\n额外说明 }'
