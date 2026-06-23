@@ -1,4 +1,4 @@
 """Future tools for destination signal collection."""
-from .search import TavilyNewsAgency, TavilyResponse
+from .search import FallbackWebSearchAgency, TavilyNewsAgency, TavilyResponse
 
-__all__: list[str] = ["TavilyNewsAgency", "TavilyResponse"]
+__all__: list[str] = ["FallbackWebSearchAgency", "TavilyNewsAgency", "TavilyResponse"]

@@ -111,6 +111,45 @@ def test_trip_request_can_be_created_successfully() -> None:
     assert request.travelers == 2
     assert request.budget == 3200
     assert request.preferences == ["自然风景", "拍照", "美食"]
+    assert request.deep_planning_reflection_rounds == 2
+    assert request.deep_planning_search_engine == "tavily"
+
+
+def test_trip_request_accepts_deep_planning_settings() -> None:
+    request = TripRequest(
+        destination="大理",
+        start_date="2026-04-10",
+        end_date="2026-04-12",
+        travelers=2,
+        budget=3200,
+        deep_planning_reflection_rounds=4,
+        deep_planning_search_engine="searxng",
+    )
+
+    assert request.deep_planning_reflection_rounds == 4
+    assert request.deep_planning_search_engine == "searxng"
+
+
+def test_trip_request_rejects_invalid_deep_planning_settings() -> None:
+    with pytest.raises(ValidationError):
+        TripRequest(
+            destination="大理",
+            start_date="2026-04-10",
+            end_date="2026-04-12",
+            travelers=2,
+            budget=3200,
+            deep_planning_reflection_rounds=6,
+        )
+
+    with pytest.raises(ValidationError):
+        TripRequest(
+            destination="大理",
+            start_date="2026-04-10",
+            end_date="2026-04-12",
+            travelers=2,
+            budget=3200,
+            deep_planning_search_engine="browser",
+        )
 
 
 def test_trip_request_rejects_invalid_travelers() -> None:
@@ -121,6 +160,17 @@ def test_trip_request_rejects_invalid_travelers() -> None:
             start_date="2026-04-10",
             end_date="2026-04-12",
             travelers=0,
+            budget=3200,
+        )
+
+
+def test_trip_request_rejects_end_date_before_start_date() -> None:
+    with pytest.raises(ValidationError):
+        TripRequest(
+            destination="大理",
+            start_date="2026-04-12",
+            end_date="2026-04-10",
+            travelers=2,
             budget=3200,
         )
 

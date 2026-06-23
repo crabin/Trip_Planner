@@ -258,17 +258,17 @@ def _extract_report_with_llm(
     force_rebuild: bool = False,
 ) -> _ExtractedReport | None:
     """Use the configured LLM to extract each report section into fixed JSON."""
-    if source_id and cache_prefix and not force_rebuild:
-        cached = _load_extracted_report_json(cache_prefix, source_id)
-        if cached is not None and cached.days:
-            return cached
-
     try:
         llm = build_chat_llm()
     except Exception:
         llm = None
     if llm is None:
         return None
+
+    if source_id and cache_prefix and not force_rebuild:
+        cached = _load_extracted_report_json(cache_prefix, source_id)
+        if cached is not None and cached.days:
+            return cached
 
     sections = _build_llm_extraction_sections(markdown, destination)
     partial_reports: list[_ExtractedReport] = []
@@ -822,9 +822,18 @@ def _needs_rebuild_from_cache(itinerary: Itinerary) -> bool:
     if "根据深度规划 Report 提取" in joined_text or itinerary.summary.startswith("根据《"):
         return True
     if _LLM_CONVERSION_MARKER in itinerary.source_notes:
-        return False
-    if _FALLBACK_CONVERSION_MARKER in itinerary.source_notes and build_chat_llm() is None:
-        return False
+        try:
+            llm = build_chat_llm()
+        except Exception:
+            llm = None
+        return llm is None
+    if _FALLBACK_CONVERSION_MARKER in itinerary.source_notes:
+        try:
+            llm = build_chat_llm()
+        except Exception:
+            llm = None
+        if llm is None:
+            return False
     return True
 
 

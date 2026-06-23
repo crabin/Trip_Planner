@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.models.schemas import ChatbotSearchSource
-from app.services.web_search_service import TavilyResponse
+from app.integrations.web_search import TavilyResponse
 
 MAX_SEARCH_RESULTS = 10
 
@@ -18,4 +18,3 @@ def format_search_sources(response: TavilyResponse) -> list[ChatbotSearchSource]
         )
         for result in response.results[:MAX_SEARCH_RESULTS]
     ]
-

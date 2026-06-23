@@ -9,6 +9,8 @@ export interface TripRequestPayload {
   dietary_preferences: string[];
   hotel_level?: string | null;
   special_notes?: string | null;
+  deep_planning_reflection_rounds: number;
+  deep_planning_search_engine: "tavily" | "searxng";
 }
 
 export interface TripEditPayload {

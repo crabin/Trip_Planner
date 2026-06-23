@@ -13,7 +13,7 @@ from app.models.schemas import (
     MealItem,
     SpotItem,
 )
-from app.services.web_search_service import SearchResult, TavilyResponse
+from app.integrations.web_search import SearchResult, TavilyResponse
 
 
 def build_itinerary() -> Itinerary:
@@ -124,7 +124,7 @@ def test_chatbot_agent_searches_with_shared_agency(monkeypatch) -> None:
 
 def test_destination_search_uses_shared_web_search_service() -> None:
     from app.agents.destination_intelligence_agent.tools.search import TavilyNewsAgency
-    from app.services.web_search_service import TavilyNewsAgency as SharedAgency
+    from app.integrations.web_search import TavilyNewsAgency as SharedAgency
 
     assert TavilyNewsAgency is SharedAgency
 

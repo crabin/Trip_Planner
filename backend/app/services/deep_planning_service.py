@@ -56,7 +56,13 @@ def run_deep_planning_job(trip_id: str, request: TripRequest) -> None:
             Settings,
         )
 
-        agent = DestinationIntelligenceAgent(Settings(OUTPUT_DIR=str(REPORT_DIR)))
+        agent = DestinationIntelligenceAgent(
+            Settings(
+                OUTPUT_DIR=str(REPORT_DIR),
+                MAX_REFLECTIONS=request.deep_planning_reflection_rounds,
+                DEEP_PLANNING_SEARCH_ENGINE=request.deep_planning_search_engine,
+            )
+        )
 
         def report_progress(progress: int, message: str) -> None:
             update_deep_plan_progress(trip_id, progress, message)

@@ -1,11 +1,12 @@
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
 
 from sqlalchemy import inspect, text
 
-from app.config import SessionLocal, engine
+from app.core.database import SessionLocal, engine
 from app.models.db_models import TripRecord
 from app.models.schemas import (
     DeepPlanDocument,
@@ -23,6 +24,8 @@ from app.services.report_catalog_service import (
 )
 from app.services.itinerary_display_service import attach_itinerary_display
 
+
+logger = logging.getLogger(__name__)
 
 _ADDITIVE_COLUMNS = {
     "plan_type": "VARCHAR(20) NOT NULL DEFAULT 'quick'",
@@ -44,7 +47,7 @@ def _utcnow_naive() -> datetime:
 
 def init_db() -> None:
     """初始化表并为旧版 SQLite 数据库执行安全的增量列迁移。"""
-    from app.config import Base
+    from app.core.database import Base
 
     Base.metadata.create_all(bind=engine)
     existing_columns = {column["name"] for column in inspect(engine).get_columns("trip_records")}
@@ -71,6 +74,28 @@ def _record_date_range(record: TripRecord) -> tuple[str | None, str | None]:
     days = itinerary_data.get("days", []) if isinstance(itinerary_data, dict) else []
     dates = [str(day.get("date")) for day in days if isinstance(day, dict) and day.get("date")]
     return (dates[0], dates[-1]) if dates else (None, None)
+
+
+def _parse_itinerary_json(record: TripRecord) -> Itinerary | None:
+    """Safely parse stored itinerary JSON, tolerating legacy or corrupted rows."""
+    try:
+        raw_data = json.loads(record.itinerary_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        logger.warning("invalid itinerary json for trip_id=%s: %s", record.trip_id, exc)
+        return None
+
+    if not isinstance(raw_data, dict) or not raw_data.get("trip_id"):
+        logger.warning("missing itinerary payload for trip_id=%s", record.trip_id)
+        return None
+
+    try:
+        itinerary = Itinerary(**raw_data)
+    except Exception as exc:
+        logger.warning("failed to validate itinerary for trip_id=%s: %s", record.trip_id, exc)
+        return None
+
+    attach_itinerary_display(itinerary)
+    return itinerary
 
 
 def _build_record_detail_title(
@@ -294,8 +319,7 @@ def get_itinerary_by_trip_id(trip_id: str) -> TripDetailResponse | None:
         itinerary = None
         deep_plan = None
         if (record.plan_type or "quick") == "quick":
-            itinerary = Itinerary(**json.loads(record.itinerary_json))
-            attach_itinerary_display(itinerary)
+            itinerary = _parse_itinerary_json(record)
         elif record.deep_plan_json:
             deep_plan = DeepPlanDocument(**json.loads(record.deep_plan_json))
 

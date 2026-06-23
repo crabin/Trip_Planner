@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 from dataclasses import dataclass
 from datetime import date as DateType, timedelta
 
@@ -27,6 +28,8 @@ from app.models.schemas import (
 from app.services.itinerary_display_service import attach_itinerary_display
 from app.services.map_service import enrich_itinerary_with_map_data
 
+
+logger = logging.getLogger(__name__)
 
 TECHNICAL_TIP_KEYWORDS = (
     "LLM",
@@ -339,13 +342,14 @@ def _maybe_enrich_itinerary_with_map_data(
     itinerary: Itinerary,
     city: str | None = None,
     request_budget: float | None = None,
+    enrich_map_data: bool = True,
 ) -> Itinerary:
     """按开关补充地图信息，并在最后统一刷新预算。"""
-    if ENABLE_AMAP_ENRICHMENT:
+    if enrich_map_data and ENABLE_AMAP_ENRICHMENT:
         try:
             itinerary = enrich_itinerary_with_map_data(itinerary, city=city)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("map enrichment failed for city=%s: %s", city, exc)
 
     return _refresh_budget_breakdown(itinerary, request_budget=request_budget)
 
@@ -622,5 +626,6 @@ def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
         updated_itinerary,
         city=updated_itinerary.destination,
         request_budget=reference_budget,
+        enrich_map_data=False,
     )
     return attach_itinerary_display(enriched_itinerary)

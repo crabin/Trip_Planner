@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date as DateType, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TripRequest(BaseModel):
@@ -22,6 +22,23 @@ class TripRequest(BaseModel):
     )
     hotel_level: str | None = Field(default=None, description="酒店档次偏好")
     special_notes: str | None = Field(default=None, description="额外要求")
+    deep_planning_reflection_rounds: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        description="深度规划反思轮次，仅深度规划使用",
+    )
+    deep_planning_search_engine: Literal["tavily", "searxng"] = Field(
+        default="tavily",
+        description="深度规划优先搜索引擎；失败重试后会自动兜底另一个服务",
+    )
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "TripRequest":
+        """拒绝结束日期早于开始日期的无效请求。"""
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be greater than or equal to start_date")
+        return self
 
 
 class TripEditRequest(BaseModel):

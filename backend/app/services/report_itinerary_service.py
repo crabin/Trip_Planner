@@ -68,6 +68,13 @@ def _agent_needs_rebuild_from_cache(itinerary: Itinerary) -> bool:
     return report_itinerary_agent._needs_rebuild_from_cache(itinerary)
 
 
+def _llm_factory_available() -> bool:
+    try:
+        return build_chat_llm() is not None
+    except Exception:
+        return False
+
+
 def _find_existing_itinerary_for_report(report_id: str) -> Itinerary | None:
     for item in list_saved_itineraries().items:
         if item.report_id != report_id or item.is_report_only or not item.has_itinerary:
@@ -86,7 +93,11 @@ def get_or_create_report_itinerary(
     force_rebuild: bool = False,
 ) -> Itinerary | None:
     """读取或生成基于历史 Report 的结构化结果页 itinerary。"""
-    existing_matched = None if force_rebuild else _find_existing_itinerary_for_report(report_id)
+    existing_matched = (
+        None
+        if force_rebuild or not _llm_factory_available()
+        else _find_existing_itinerary_for_report(report_id)
+    )
     if existing_matched is not None:
         return existing_matched
 

@@ -91,6 +91,35 @@ def test_get_itinerary_by_trip_id_returns_none_for_missing_trip() -> None:
     assert trip_detail is None
 
 
+def test_get_itinerary_by_trip_id_tolerates_invalid_quick_payload() -> None:
+    trip_id = f"trip_invalid_payload_{uuid.uuid4().hex[:8]}"
+    session = SessionLocal()
+    try:
+        session.add(
+            TripRecord(
+                trip_id=trip_id,
+                destination="大理",
+                summary="损坏的快速规划记录",
+                plan_type="quick",
+                status="completed",
+                progress=100,
+                itinerary_json="{}",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    try:
+        trip_detail = get_itinerary_by_trip_id(trip_id)
+
+        assert trip_detail is not None
+        assert trip_detail.trip_id == trip_id
+        assert trip_detail.itinerary is None
+    finally:
+        delete_trip_by_trip_id(trip_id)
+
+
 def test_deep_plan_is_visible_while_generating_and_cannot_be_deleted() -> None:
     item = create_deep_plan(build_trip_request())
     try:
@@ -149,4 +178,3 @@ def test_completed_deep_plan_round_trips_markdown_and_sources() -> None:
         if detail is not None:
             fail_deep_plan(item.trip_id, "test cleanup")
             delete_trip_by_trip_id(item.trip_id)
-

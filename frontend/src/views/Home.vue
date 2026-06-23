@@ -47,6 +47,8 @@ const formState = reactive({
   preferences: ["自然风景", "拍照", "美食"],
   dietaryPreferences: ["少辣"],
   notes: "不想太早起床，希望安排一个适合看日落的地点。",
+  deepPlanningReflectionRounds: 2,
+  deepPlanningSearchEngine: "tavily" as "tavily" | "searxng",
 });
 
 const submittingMode = ref<"quick" | "deep" | null>(null);
@@ -70,6 +72,8 @@ function buildPayload(): TripRequestPayload {
     dietary_preferences: formState.dietaryPreferences,
     hotel_level: formState.hotelLevel,
     special_notes: formState.notes,
+    deep_planning_reflection_rounds: formState.deepPlanningReflectionRounds,
+    deep_planning_search_engine: formState.deepPlanningSearchEngine,
   };
 }
 
@@ -206,6 +210,36 @@ async function handleDeepSubmit() {
         :rows="4"
         placeholder="输入想要保留的偏好、节奏和备注"
       />
+    </div>
+
+    <div class="planner-card">
+      <div class="section-title">
+        <span class="section-title__icon">🔎</span>
+        <span>深度规划设置</span>
+      </div>
+
+      <a-row :gutter="[16, 16]">
+        <a-col :xs="24" :md="8">
+          <label class="field-label">反思轮次</label>
+          <a-input-number
+            v-model:value="formState.deepPlanningReflectionRounds"
+            :min="0"
+            :max="5"
+            style="width: 100%"
+          />
+        </a-col>
+        <a-col :xs="24" :md="16">
+          <label class="field-label">优先搜索引擎</label>
+          <a-segmented
+            v-model:value="formState.deepPlanningSearchEngine"
+            block
+            :options="[
+              { label: 'Tavily', value: 'tavily' },
+              { label: 'SearXNG', value: 'searxng' }
+            ]"
+          />
+        </a-col>
+      </a-row>
     </div>
 
     <div class="submit-panel">

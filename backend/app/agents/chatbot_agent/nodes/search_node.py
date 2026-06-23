@@ -4,8 +4,8 @@ import json
 from typing import Any
 
 from app.agents.trip_planner_agent.utils import response_content_to_text
+from app.integrations.web_search import TavilyNewsAgency, TavilyResponse
 from app.models.schemas import ChatbotMessageRequest, ChatbotMessageResponse
-from app.services.web_search_service import TavilyNewsAgency, TavilyResponse
 
 from ..prompts import SEARCH_SUMMARY_SYSTEM_PROMPT
 from ..state import IntentDecision
@@ -90,4 +90,3 @@ class SearchNode:
                 snippet = f"{snippet[:90]}..."
             bullets.append(f"{result.title or '搜索结果'}：{snippet}")
         return "我查到这些线索：\n" + "\n".join(f"- {item}" for item in bullets)
-

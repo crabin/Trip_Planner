@@ -20,7 +20,7 @@ from .nodes import (
     ReportFormattingNode
 )
 from .state import State
-from .tools import TavilyNewsAgency, TavilyResponse
+from .tools import FallbackWebSearchAgency, TavilyResponse
 from .utils import Settings, format_search_results_for_prompt
 from loguru import logger
 
@@ -53,7 +53,11 @@ class DestinationIntelligenceAgent:
         self.llm_client = self._initialize_llm()
         
         # 初始化搜索工具集
-        self.search_agency = TavilyNewsAgency(api_key=self.config.TAVILY_API_KEY)
+        self.search_agency = FallbackWebSearchAgency(
+            primary_engine=self.config.DEEP_PLANNING_SEARCH_ENGINE,
+            tavily_api_key=self.config.TAVILY_API_KEY,
+            searxng_base_url=self.config.SEARXNG_BASE_URL,
+        )
         
         # 初始化节点
         self._initialize_nodes()
@@ -66,7 +70,10 @@ class DestinationIntelligenceAgent:
         
         logger.info("Destination Travel Guide Agent已初始化")
         logger.info(f"使用LLM: {self.llm_client.get_model_info()}")
-        logger.info("搜索工具集: Tavily通用网页研究（支持6种兼容工具）")
+        logger.info(
+            "搜索工具集: {} 优先，失败后自动兜底另一搜索服务",
+            self.config.DEEP_PLANNING_SEARCH_ENGINE,
+        )
     
     def _initialize_llm(self) -> LLMClient:
         """初始化LLM客户端"""

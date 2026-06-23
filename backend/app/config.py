@@ -2,30 +2,19 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
 
-
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BACKEND_DIR / ".env")
-
-
-# 数据库配置
-DB_DIR = BACKEND_DIR / "db"
-DB_DIR.mkdir(parents=True, exist_ok=True)
-
-_sqlite_db_path_raw = Path(os.getenv("SQLITE_DB_PATH", str(DB_DIR / "app.db")))
-SQLITE_DB_PATH = (
-    _sqlite_db_path_raw
-    if _sqlite_db_path_raw.is_absolute()
-    else BACKEND_DIR / _sqlite_db_path_raw
+from app.core.database import (
+    BACKEND_DIR,
+    DATABASE_URL,
+    DB_DIR,
+    SQLITE_DB_PATH,
+    Base,
+    SessionLocal,
+    engine,
 )
-SQLITE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-DATABASE_URL = f"sqlite:///{SQLITE_DB_PATH.as_posix()}"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+load_dotenv(BACKEND_DIR / ".env")
 
 
 # 大模型配置

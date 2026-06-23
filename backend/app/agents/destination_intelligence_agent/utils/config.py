@@ -10,7 +10,7 @@ destination_intelligence_agent 配置类
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-from typing import Optional
+from typing import Literal, Optional
 
 # 计算 .env 优先级，优先当前目录下的 .env 文件，其次是根目录的 .env 文件
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -49,6 +49,14 @@ class Settings(BaseSettings):
         description="Tavily API（申请地址：https://www.tavily.com/）API密钥，用于Tavily网络搜索",
         repr=False,
     )
+    SEARXNG_BASE_URL: str = Field(
+        "http://lpbkuaile6:8888/",
+        description="SearXNG 私有实例地址，用于本地网络搜索",
+    )
+    DEEP_PLANNING_SEARCH_ENGINE: Literal["tavily", "searxng"] = Field(
+        "tavily",
+        description="深度规划优先使用的搜索引擎",
+    )
 
     # ================== 搜索参数配置 ====================
     SEARCH_TIMEOUT: int = Field(240, description="搜索超时（秒）")
@@ -76,6 +84,8 @@ def print_config(config: Settings):
     message += f"LLM 模型: {config.DESTINATION_INTELLIGENCE_AGENT_MODEL_NAME}\n"
     message += f"LLM Base URL: {config.DESTINATION_INTELLIGENCE_AGENT_BASE_URL or '(默认)'}\n"
     message += f"Tavily API Key: {'已配置' if config.TAVILY_API_KEY else '未配置'}\n"
+    message += f"SearXNG Base URL: {config.SEARXNG_BASE_URL}\n"
+    message += f"深度规划优先搜索引擎: {config.DEEP_PLANNING_SEARCH_ENGINE}\n"
     message += f"搜索超时: {config.SEARCH_TIMEOUT} 秒\n"
     message += f"最长内容长度: {config.SEARCH_CONTENT_MAX_LENGTH}\n"
     message += f"最大反思次数: {config.MAX_REFLECTIONS}\n"
