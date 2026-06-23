@@ -94,7 +94,7 @@ class MealItem(BaseModel):
 
     name: str = Field(..., description="餐厅或餐饮建议名称")
     meal_type: str = Field(..., description="早餐、午餐、晚餐等")
-    estimated_cost: float = Field(default=0.0, ge=0, description="预估花费")
+    estimated_cost: float | None = Field(default=None, ge=0, description="预估花费；未知时为 None")
     notes: str | None = Field(default=None, description="补充说明")
     image_url: str | None = Field(default=None, description="餐厅图片地址")
     address: str | None = Field(default=None, description="餐厅详细地址")
@@ -127,7 +127,7 @@ class HotelItem(BaseModel):
 
     name: str = Field(..., description="酒店名称")
     level: str | None = Field(default=None, description="酒店档次")
-    estimated_cost: float = Field(default=0.0, ge=0, description="预估花费")
+    estimated_cost: float | None = Field(default=None, ge=0, description="预估花费；未知时为 None")
     location: str | None = Field(default=None, description="酒店位置")
     address: str | None = Field(default=None, description="酒店详细地址")
     latitude: float | None = Field(default=None, description="酒店纬度")
@@ -161,7 +161,7 @@ class TransportItem(BaseModel):
     mode: str = Field(..., description="交通方式，例如步行、打车、公交")
     from_place: str | None = Field(default=None, description="出发地")
     to_place: str | None = Field(default=None, description="目的地")
-    estimated_cost: float = Field(default=0.0, ge=0, description="预估花费")
+    estimated_cost: float | None = Field(default=None, ge=0, description="预估花费；未知时为 None")
     duration: str | None = Field(default=None, description="预计耗时")
     distance_km: float | None = Field(default=None, ge=0, description="预计距离，单位公里")
     estimated_minutes: int | None = Field(default=None, ge=0, description="预计耗时，单位分钟")
@@ -327,6 +327,28 @@ class DayPlan(BaseModel):
     notes: list[str] = Field(default_factory=list, description="补充说明")
 
 
+class ItineraryOverviewFact(BaseModel):
+    """LLM 从 Report 直接抽取的概览字段。"""
+
+    key: str = Field(..., description="稳定字段 key")
+    label: str = Field(..., description="结果页展示标签")
+    value: str = Field(..., description="字段值")
+    source_chunk_ids: list[str] = Field(default_factory=list, description="来源小结 ID")
+
+
+class ItineraryConversionMeta(BaseModel):
+    """Report 转换版本与完整性元数据。"""
+
+    kind: Literal["report_itinerary", "deep_itinerary"]
+    version: str
+    source_id: str
+    source_sha256: str
+    model: str = ""
+    chunk_count: int = Field(..., ge=1)
+    completed_chunk_count: int = Field(..., ge=0)
+    quality_passed: bool = False
+
+
 class Itinerary(BaseModel):
     """完整行程。"""
 
@@ -340,6 +362,14 @@ class Itinerary(BaseModel):
     source_notes: list[str] = Field(
         default_factory=list,
         description="RAG 或规则生成产生的补充说明",
+    )
+    overview_facts: list[ItineraryOverviewFact] = Field(
+        default_factory=list,
+        description="Report 转换直接提取的结构化概览字段",
+    )
+    conversion_meta: ItineraryConversionMeta | None = Field(
+        default=None,
+        description="Report/Deep Report 转换元数据",
     )
     display: ItineraryDisplay | None = Field(
         default=None,

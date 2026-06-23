@@ -55,36 +55,68 @@ def attach_itinerary_display(itinerary: Itinerary) -> Itinerary:
 
 
 def build_itinerary_display(itinerary: Itinerary) -> ItineraryDisplay:
-    overview_fields = _parse_overview_summary(itinerary.summary)
+    typed_overview = {
+        item.key: DisplayTextItem(
+            key=item.key,
+            label=item.label,
+            value=item.value,
+            source_path="overview_facts",
+        )
+        for item in itinerary.overview_facts
+        if item.value
+    }
+    overview_fields = list(typed_overview.values()) or _parse_overview_summary(itinerary.summary)
     field_map = {item.label: item.value for item in overview_fields}
     date_range = _date_range_text(itinerary)
 
-    overview = [
-        DisplayTextItem(key="date_range", label="日期与天数", value=field_map.get("日期与天数", date_range), source_path="days"),
-        DisplayTextItem(key="travelers", label="出行人", value=field_map.get("出行人", "待补充"), source_path="summary"),
-        DisplayTextItem(key="origin", label="出发地", value=field_map.get("出发地", "待补充"), source_path="summary"),
-        DisplayTextItem(key="pace", label="旅行模式", value=field_map.get("旅行模式与节奏", "待补充"), source_path="summary"),
-    ]
-    plan_highlights = [
-        DisplayTextItem(
-            key=_stable_key("plan", item.label),
-            label=item.label,
-            value=item.value,
-            source_path="summary",
-        )
-        for item in overview_fields
-        if item.label in PLAN_LABELS
-    ]
-    confirmations = [
-        DisplayTextItem(
-            key=_stable_key("confirm", item.label),
-            label=item.label,
-            value=item.value,
-            source_path="summary",
-        )
-        for item in overview_fields
-        if item.label in CONFIRM_LABELS
-    ]
+    if typed_overview:
+        overview = [
+            typed_overview.get("date_range")
+            or DisplayTextItem(key="date_range", label="日期与天数", value=date_range, source_path="days"),
+            typed_overview.get("travelers")
+            or DisplayTextItem(key="travelers", label="出行人", value="待补充", source_path="overview_facts"),
+            typed_overview.get("origin")
+            or DisplayTextItem(key="origin", label="出发地", value="待补充", source_path="overview_facts"),
+            typed_overview.get("pace")
+            or DisplayTextItem(key="pace", label="旅行模式", value="待补充", source_path="overview_facts"),
+        ]
+        primary_keys = {"date_range", "travelers", "origin", "pace"}
+        confirmation_keys = {"confirmations"}
+        plan_highlights = [
+            item
+            for key, item in typed_overview.items()
+            if key not in primary_keys | confirmation_keys
+        ]
+        confirmations = [
+            item for key, item in typed_overview.items() if key in confirmation_keys
+        ]
+    else:
+        overview = [
+            DisplayTextItem(key="date_range", label="日期与天数", value=field_map.get("日期与天数", date_range), source_path="days"),
+            DisplayTextItem(key="travelers", label="出行人", value=field_map.get("出行人", "待补充"), source_path="summary"),
+            DisplayTextItem(key="origin", label="出发地", value=field_map.get("出发地", "待补充"), source_path="summary"),
+            DisplayTextItem(key="pace", label="旅行模式", value=field_map.get("旅行模式与节奏", "待补充"), source_path="summary"),
+        ]
+        plan_highlights = [
+            DisplayTextItem(
+                key=_stable_key("plan", item.label),
+                label=item.label,
+                value=item.value,
+                source_path="summary",
+            )
+            for item in overview_fields
+            if item.label in PLAN_LABELS
+        ]
+        confirmations = [
+            DisplayTextItem(
+                key=_stable_key("confirm", item.label),
+                label=item.label,
+                value=item.value,
+                source_path="summary",
+            )
+            for item in overview_fields
+            if item.label in CONFIRM_LABELS
+        ]
 
     budget_items = _build_budget_items(itinerary)
     day_budget_items = _build_day_budget_items(itinerary)
@@ -225,6 +257,8 @@ def _build_budget_items(itinerary: Itinerary) -> list[DisplayBudgetItem]:
         ("transport", "交通费用", budget.transport, "budget_breakdown.transport"),
         ("other", "其他费用", budget.other, "budget_breakdown.other"),
     ]
+    if itinerary.conversion_meta is not None:
+        items = [item for item in items if item[2] > 0]
     return [
         DisplayBudgetItem(
             key=f"budget_{key}",
@@ -240,10 +274,18 @@ def _build_budget_items(itinerary: Itinerary) -> list[DisplayBudgetItem]:
 def _build_day_budget_items(itinerary: Itinerary) -> list[DisplayBudgetItem]:
     result: list[DisplayBudgetItem] = []
     for day_index, day in enumerate(itinerary.days):
+        known_costs = [
+            *(spot.estimated_cost for spot in day.spots),
+            *(meal.estimated_cost for meal in day.meals),
+            *(item.estimated_cost for item in day.transport),
+            day.hotel.estimated_cost if day.hotel else None,
+        ]
+        if itinerary.conversion_meta is not None and not any(value is not None for value in known_costs):
+            continue
         tickets = sum(spot.estimated_cost or 0.0 for spot in day.spots)
         meals = sum(meal.estimated_cost or 0.0 for meal in day.meals)
         transport = sum(item.estimated_cost or 0.0 for item in day.transport)
-        hotel = day.hotel.estimated_cost if day.hotel else 0.0
+        hotel = (day.hotel.estimated_cost or 0.0) if day.hotel else 0.0
         total = tickets + meals + transport + hotel
         for key, label, amount in (
             ("tickets", "门票", tickets),
@@ -316,7 +358,16 @@ def _build_map_points(itinerary: Itinerary) -> list[DisplayMapPoint]:
                     source_path=f"days.{day_index}.meal_candidates.{meal_index}" if day.meal_candidates else f"days.{day_index}.meals.{meal_index}",
                 )
             )
-    return points
+    result: list[DisplayMapPoint] = []
+    seen: set[tuple[object, ...]] = set()
+    for point in points:
+        identity = _map_point_identity(point)
+        if identity is not None and identity in seen:
+            continue
+        if identity is not None:
+            seen.add(identity)
+        result.append(point)
+    return result
 
 
 def _map_point_from_item(
@@ -363,9 +414,15 @@ def _map_point_from_item(
 
 def _build_hotel_recommendations(itinerary: Itinerary) -> list[DisplayRecommendationItem]:
     result: list[DisplayRecommendationItem] = []
+    seen: set[tuple[object, ...]] = set()
     for day_index, day in enumerate(itinerary.days):
         if day.hotel is None:
             continue
+        identity = _item_identity(day.hotel)
+        if identity is not None and identity in seen:
+            continue
+        if identity is not None:
+            seen.add(identity)
         result.append(
             _recommendation_from_item(
                 item=day.hotel,
@@ -384,10 +441,16 @@ def _build_hotel_recommendations(itinerary: Itinerary) -> list[DisplayRecommenda
 
 def _build_meal_recommendations(itinerary: Itinerary) -> list[DisplayRecommendationItem]:
     result: list[DisplayRecommendationItem] = []
+    seen: set[tuple[object, ...]] = set()
     for day_index, day in enumerate(itinerary.days):
         for meal_index, meal in enumerate(day.meals):
             if not (meal.is_recommended and meal.name):
                 continue
+            identity = _item_identity(meal)
+            if identity is not None and identity in seen:
+                continue
+            if identity is not None:
+                seen.add(identity)
             result.append(
                 _recommendation_from_item(
                     item=meal,
@@ -402,6 +465,27 @@ def _build_meal_recommendations(itinerary: Itinerary) -> list[DisplayRecommendat
                 )
             )
     return result
+
+
+def _item_identity(item: MealItem | HotelItem) -> tuple[object, ...] | None:
+    if item.poi_id:
+        return ("poi", item.poi_id)
+    if item.latitude is not None and item.longitude is not None:
+        return ("coordinates", round(item.latitude, 6), round(item.longitude, 6))
+    return None
+
+
+def _map_point_identity(point: DisplayMapPoint) -> tuple[object, ...] | None:
+    if point.poi_id:
+        return (point.kind, "poi", point.poi_id)
+    if point.latitude is not None and point.longitude is not None:
+        return (
+            point.kind,
+            "coordinates",
+            round(point.latitude, 6),
+            round(point.longitude, 6),
+        )
+    return None
 
 
 def _recommendation_from_item(
@@ -451,7 +535,7 @@ def _build_day_cards(itinerary: Itinerary) -> list[DisplayDayCard]:
             DisplayTextItem(
                 key=f"day_{day.day_index}_spot_address",
                 label="景点地址",
-                value=(spot.address or spot.location) if spot else "待补充",
+                value=(spot.address or spot.location or "待补充") if spot else "待补充",
                 source_path=f"days.{day_index}.spots.0.address",
             ),
             DisplayTextItem(

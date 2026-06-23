@@ -239,6 +239,88 @@ function parseOverviewSummary(summary?: string | null) {
     .filter((item) => item.value);
 }
 
+interface DayNoteBlock {
+  label: string;
+  value: string;
+}
+
+function cleanDayNoteText(note?: string | null): string {
+  return (note || "")
+    .replace(/\|\s*-{2,}\s*\|/g, " ")
+    .replace(/\|\s*-{2,}\s*/g, " ")
+    .replace(/\s*\|\s*/g, "；")
+    .replace(/\s+/g, " ")
+    .replace(/^备注[：:]\s*/, "")
+    .trim();
+}
+
+function splitFallbackDayNote(note: string): DayNoteBlock[] {
+  return note
+    .split(/(?<=[。！？；;])\s*/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((value, index) => ({
+      label: index === 0 ? "行程提示" : `补充 ${index + 1}`,
+      value,
+    }));
+}
+
+function parseDayNote(note?: string | null): DayNoteBlock[] {
+  const cleanNote = cleanDayNoteText(note);
+  if (!cleanNote) {
+    return [];
+  }
+
+  const labelMatches = [...cleanNote.matchAll(/(?:^|[。；;｜|]\s*|\s[-—]\s*)([^：:。；;｜|]{2,18})[：:]/g)]
+    .map((match) => {
+      const fullMatch = match[0];
+      const label = (match[1] || "").trim();
+      const markerOffset = fullMatch.lastIndexOf(label);
+      return {
+        label,
+        labelStart: match.index + markerOffset,
+        valueStart: match.index + fullMatch.length,
+      };
+    })
+    .filter((match) => match.label && !/^-+$/.test(match.label));
+
+  if (labelMatches.length < 2) {
+    return splitFallbackDayNote(cleanNote);
+  }
+
+  return labelMatches
+    .map((match, index) => {
+      const next = labelMatches[index + 1];
+      const value = cleanNote
+        .slice(match.valueStart, next?.labelStart ?? cleanNote.length)
+        .replace(/^[\s。；;｜|\-—]+/, "")
+        .replace(/[\s；;｜|\-—]+$/, "")
+        .trim();
+      return {
+        label: match.label.replace(/^备注$/, "补充说明"),
+        value,
+      };
+    })
+    .filter((block) => block.value)
+    .slice(0, 12);
+}
+
+function buildDayNoteBlocks(notes?: string[] | null): DayNoteBlock[] {
+  const seen = new Set<string>();
+  return (notes || [])
+    .flatMap((note) => parseDayNote(note))
+    .filter((block) => {
+      const key = `${block.label}:${block.value}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 14);
+}
+
 const overviewFields = computed(() => {
   const display = structuredDisplay.value;
   if (display) {
@@ -1214,7 +1296,17 @@ async function handleEdit() {
               </div>
               <div class="day-card__section">
                 <strong>备注：</strong>
-                <span>{{ day.notes[day.notes.length - 1] || "无" }}</span>
+                <div v-if="buildDayNoteBlocks(day.notes).length" class="day-note-grid">
+                  <article
+                    v-for="noteBlock in buildDayNoteBlocks(day.notes)"
+                    :key="`${noteBlock.label}-${noteBlock.value}`"
+                    class="day-note-chip"
+                  >
+                    <span>{{ noteBlock.label }}</span>
+                    <p>{{ noteBlock.value }}</p>
+                  </article>
+                </div>
+                <span v-else>无</span>
               </div>
             </div>
           </details>
@@ -2092,6 +2184,43 @@ async function handleEdit() {
 .day-card__section {
   color: #475467;
   line-height: 1.7;
+}
+
+.day-card__section:has(.day-note-grid) {
+  display: grid;
+  gap: 10px;
+}
+
+.day-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.day-note-chip {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(98, 116, 164, 0.1);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(109, 130, 222, 0.06), rgba(255, 255, 255, 0.78)),
+    #ffffff;
+}
+
+.day-note-chip span {
+  color: #5d66c3;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.day-note-chip p {
+  margin: 0;
+  color: #465467;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
 .day-card__section em {

@@ -19,13 +19,13 @@ from app.agents.report_itinerary_agent.agent import (
     _needs_rebuild_from_cache,
     _parse_date,
     _save_extracted_report_json,
+    _source_sha256,
     build_chat_llm,
 )
 from app.models.schemas import DeepPlanDocument, Itinerary
 from app.services.report_catalog_service import get_report_artifact
 from app.services.storage_service import (
     get_itinerary_by_trip_id,
-    list_saved_itineraries,
     save_itinerary,
 )
 
@@ -63,28 +63,9 @@ def _document_to_itinerary(
     )
 
 
-def _agent_needs_rebuild_from_cache(itinerary: Itinerary) -> bool:
+def _agent_needs_rebuild_from_cache(itinerary: Itinerary, source_sha256: str) -> bool:
     _sync_agent_compatibility_hooks()
-    return report_itinerary_agent._needs_rebuild_from_cache(itinerary)
-
-
-def _llm_factory_available() -> bool:
-    try:
-        return build_chat_llm() is not None
-    except Exception:
-        return False
-
-
-def _find_existing_itinerary_for_report(report_id: str) -> Itinerary | None:
-    for item in list_saved_itineraries().items:
-        if item.report_id != report_id or item.is_report_only or not item.has_itinerary:
-            continue
-        if item.trip_id.startswith(("report_itinerary_", "deep_itinerary_")):
-            continue
-        detail = get_itinerary_by_trip_id(item.trip_id)
-        if detail and detail.itinerary:
-            return detail.itinerary
-    return None
+    return report_itinerary_agent._needs_rebuild_from_cache(itinerary, source_sha256)
 
 
 def get_or_create_report_itinerary(
@@ -93,25 +74,18 @@ def get_or_create_report_itinerary(
     force_rebuild: bool = False,
 ) -> Itinerary | None:
     """读取或生成基于历史 Report 的结构化结果页 itinerary。"""
-    existing_matched = (
-        None
-        if force_rebuild or not _llm_factory_available()
-        else _find_existing_itinerary_for_report(report_id)
-    )
-    if existing_matched is not None:
-        return existing_matched
-
     artifact = get_report_artifact(report_id)
     if artifact is None:
         return None
 
+    fingerprint = _source_sha256(artifact.document.markdown)
     cache_id = _cache_trip_id("report_itinerary", report_id)
     cached_detail = get_itinerary_by_trip_id(cache_id)
     if (
         not force_rebuild
         and cached_detail
         and cached_detail.itinerary
-        and not _agent_needs_rebuild_from_cache(cached_detail.itinerary)
+        and not _agent_needs_rebuild_from_cache(cached_detail.itinerary, fingerprint)
     ):
         return cached_detail.itinerary
 
@@ -143,13 +117,14 @@ def get_or_create_deep_plan_itinerary(
     if detail.deep_plan is None:
         return None
 
+    fingerprint = _source_sha256(detail.deep_plan.markdown)
     cache_id = _cache_trip_id("deep_itinerary", trip_id)
     cached_detail = get_itinerary_by_trip_id(cache_id)
     if (
         not force_rebuild
         and cached_detail
         and cached_detail.itinerary
-        and not _agent_needs_rebuild_from_cache(cached_detail.itinerary)
+        and not _agent_needs_rebuild_from_cache(cached_detail.itinerary, fingerprint)
     ):
         return cached_detail.itinerary
 
@@ -186,5 +161,6 @@ __all__ = [
     "_needs_rebuild_from_cache",
     "_parse_date",
     "_save_extracted_report_json",
+    "_source_sha256",
     "build_chat_llm",
 ]

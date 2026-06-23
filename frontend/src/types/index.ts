@@ -57,7 +57,7 @@ export interface SpotItem {
 export interface MealItem {
   name: string;
   meal_type: string;
-  estimated_cost?: number;
+  estimated_cost?: number | null;
   notes?: string | null;
   image_url?: string | null;
   address?: string | null;
@@ -88,7 +88,7 @@ export interface MealItem {
 export interface HotelItem {
   name: string;
   level?: string | null;
-  estimated_cost?: number;
+  estimated_cost?: number | null;
   location?: string | null;
   address?: string | null;
   latitude?: number | null;
@@ -120,7 +120,7 @@ export interface TransportItem {
   mode: string;
   from_place?: string | null;
   to_place?: string | null;
-  estimated_cost?: number;
+  estimated_cost?: number | null;
   duration?: string | null;
   distance_km?: number | null;
   estimated_minutes?: number | null;
@@ -265,6 +265,24 @@ export interface ItineraryDisplay {
   sections: DisplaySection[];
 }
 
+export interface ItineraryOverviewFact {
+  key: string;
+  label: string;
+  value: string;
+  source_chunk_ids: string[];
+}
+
+export interface ItineraryConversionMeta {
+  kind: "report_itinerary" | "deep_itinerary";
+  version: string;
+  source_id: string;
+  source_sha256: string;
+  model: string;
+  chunk_count: number;
+  completed_chunk_count: number;
+  quality_passed: boolean;
+}
+
 export interface Itinerary {
   trip_id: string;
   destination: string;
@@ -274,6 +292,8 @@ export interface Itinerary {
   budget_breakdown: BudgetBreakdown;
   tips: string[];
   source_notes: string[];
+  overview_facts?: ItineraryOverviewFact[];
+  conversion_meta?: ItineraryConversionMeta | null;
   display?: ItineraryDisplay | null;
 }
 

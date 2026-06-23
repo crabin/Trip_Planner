@@ -61,12 +61,6 @@ function updateCurrentItinerary(itinerary: Itinerary) {
           结果页
         </button>
         <button
-          :class="['hero__tab', { 'hero__tab--active': currentView === 'history' }]"
-          @click="currentView = 'history'"
-        >
-          历史列表
-        </button>
-        <button
           :class="[
             'hero__tab',
             { 'hero__tab--active': currentView === 'deep-result' },
@@ -76,6 +70,12 @@ function updateCurrentItinerary(itinerary: Itinerary) {
           @click="currentView = 'deep-result'"
         >
           深度规划
+        </button>
+        <button
+          :class="['hero__tab', { 'hero__tab--active': currentView === 'history' }]"
+          @click="currentView = 'history'"
+        >
+          历史列表
         </button>
       </div>
     </header>

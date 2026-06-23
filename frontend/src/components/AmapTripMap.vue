@@ -40,6 +40,7 @@ const markerList = ref<any[]>([]);
 const routeLine = ref<any>(null);
 const loadError = ref("");
 const activeKind = ref<"spot" | "hotel" | "meal">("spot");
+const activeDayIndex = ref<number | null>(null);
 
 const amapKey = import.meta.env.VITE_AMAP_JS_KEY;
 
@@ -50,7 +51,11 @@ const validPoints = computed(() =>
 );
 
 const visiblePoints = computed(() =>
-  validPoints.value.filter((point) => (point.kind || "spot") === activeKind.value)
+  validPoints.value.filter((point) => {
+    const matchesKind = (point.kind || "spot") === activeKind.value;
+    const matchesDay = activeDayIndex.value == null || point.dayIndex === activeDayIndex.value;
+    return matchesKind && matchesDay;
+  })
 );
 
 const filterOptions = computed(() => [
@@ -70,6 +75,42 @@ const filterOptions = computed(() => [
     count: validPoints.value.filter((point) => point.kind === "meal").length,
   },
 ]);
+
+const dayOptionsByKind = computed(() => {
+  const groups: Record<"spot" | "hotel" | "meal", { dayIndex: number; count: number }[]> = {
+    spot: [],
+    hotel: [],
+    meal: [],
+  };
+  const dayCounts: Record<"spot" | "hotel" | "meal", Map<number, number>> = {
+    spot: new Map(),
+    hotel: new Map(),
+    meal: new Map(),
+  };
+
+  validPoints.value.forEach((point) => {
+    const kind = point.kind || "spot";
+    dayCounts[kind].set(point.dayIndex, (dayCounts[kind].get(point.dayIndex) || 0) + 1);
+  });
+
+  (Object.keys(dayCounts) as Array<"spot" | "hotel" | "meal">).forEach((kind) => {
+    groups[kind] = [...dayCounts[kind].entries()]
+      .sort(([dayA], [dayB]) => dayA - dayB)
+      .map(([dayIndex, count]) => ({ dayIndex, count }));
+  });
+
+  return groups;
+});
+
+function selectKind(kind: "spot" | "hotel" | "meal") {
+  activeKind.value = kind;
+  activeDayIndex.value = null;
+}
+
+function selectDay(kind: "spot" | "hotel" | "meal", dayIndex: number) {
+  activeKind.value = kind;
+  activeDayIndex.value = dayIndex;
+}
 
 function escapeHtml(value: string | number | null | undefined): string {
   return String(value ?? "")
@@ -384,7 +425,7 @@ onMounted(() => {
   void initMap();
 });
 
-watch([visiblePoints, activeKind], () => {
+watch([visiblePoints, activeKind, activeDayIndex], () => {
   if (mapInstance.value) {
     renderMarkers();
   }
@@ -411,18 +452,42 @@ onBeforeUnmount(() => {
     </div>
     <div v-else class="trip-map__stage">
       <div class="trip-map__filters" aria-label="地图点位筛选">
-        <button
+        <div
           v-for="option in filterOptions"
           :key="option.key"
-          class="trip-map__filter"
-          :class="{ 'trip-map__filter--active': activeKind === option.key }"
-          type="button"
-          :disabled="option.count === 0"
-          @click="activeKind = option.key"
+          class="trip-map__filter-group"
         >
-          <span>{{ option.label }}</span>
-          <strong>{{ option.count }}</strong>
-        </button>
+          <button
+            class="trip-map__filter"
+            :class="{ 'trip-map__filter--active': activeKind === option.key }"
+            type="button"
+            :disabled="option.count === 0"
+            @click="selectKind(option.key)"
+          >
+            <span>{{ option.label }}</span>
+            <strong>{{ option.count }}</strong>
+          </button>
+          <div
+            v-if="dayOptionsByKind[option.key].length > 0"
+            class="trip-map__day-menu"
+            :aria-label="`${option.label}按天筛选`"
+          >
+            <button
+              v-for="dayOption in dayOptionsByKind[option.key]"
+              :key="dayOption.dayIndex"
+              class="trip-map__day-filter"
+              :class="{
+                'trip-map__day-filter--active':
+                  activeKind === option.key && activeDayIndex === dayOption.dayIndex,
+              }"
+              type="button"
+              @click="selectDay(option.key, dayOption.dayIndex)"
+            >
+              <span>第{{ dayOption.dayIndex }}天</span>
+              <strong>{{ dayOption.count }}</strong>
+            </button>
+          </div>
+        </div>
       </div>
       <div v-if="visiblePoints.length === 0" class="trip-map__empty-filter">
         当前分类暂无可展示点位
@@ -473,6 +538,10 @@ onBeforeUnmount(() => {
   max-width: calc(100% - 28px);
 }
 
+.trip-map__filter-group {
+  position: relative;
+}
+
 .trip-map__filter {
   display: inline-flex;
   align-items: center;
@@ -487,6 +556,74 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.trip-map__day-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 92px;
+  padding: 8px;
+  border: 1px solid rgba(98, 116, 164, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.trip-map__filter-group:hover .trip-map__day-menu,
+.trip-map__filter-group:focus-within .trip-map__day-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.trip-map__day-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 9px;
+  background: rgba(241, 245, 249, 0.92);
+  color: #475467;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.trip-map__day-filter strong {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(98, 116, 164, 0.12);
+  color: #667085;
+  font-size: 10px;
+}
+
+.trip-map__day-filter--active {
+  background: linear-gradient(135deg, rgba(109, 130, 222, 0.96), rgba(138, 103, 207, 0.96));
+  color: #ffffff;
+}
+
+.trip-map__day-filter--active strong {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
 
 .trip-map__filter strong {

@@ -20,6 +20,7 @@ from app.services.report_itinerary_service import (
     get_or_create_deep_plan_itinerary,
     get_or_create_report_itinerary,
 )
+from app.agents.report_itinerary_agent.agent import ReportConversionError
 from app.services.storage_service import (
     create_deep_plan,
     delete_trip_by_trip_id,
@@ -81,7 +82,10 @@ def get_report_itinerary(
     force: bool = Query(default=False, description="是否跳过缓存并重新从 Report 转换"),
 ) -> Itinerary:
     """把历史 Report 转换为结果页使用的结构化 itinerary；已转换则直接复用。"""
-    itinerary = get_or_create_report_itinerary(report_id, force_rebuild=force)
+    try:
+        itinerary = get_or_create_report_itinerary(report_id, force_rebuild=force)
+    except ReportConversionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
     if itinerary is None:
         raise HTTPException(status_code=404, detail="Report not found.")
     return itinerary
@@ -131,7 +135,10 @@ def get_deep_plan_itinerary(
     force: bool = Query(default=False, description="是否跳过缓存并重新从深度规划文档转换"),
 ) -> Itinerary:
     """把已完成深度规划文档转换为结果页使用的结构化 itinerary；已转换则直接复用。"""
-    itinerary = get_or_create_deep_plan_itinerary(trip_id, force_rebuild=force)
+    try:
+        itinerary = get_or_create_deep_plan_itinerary(trip_id, force_rebuild=force)
+    except ReportConversionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
     if itinerary is None:
         raise HTTPException(status_code=404, detail="Deep plan not found or not completed.")
     return itinerary

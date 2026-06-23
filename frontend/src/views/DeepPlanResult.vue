@@ -29,6 +29,15 @@ function conversionErrorMessage(error: unknown) {
   if (typeof detail === "string" && detail.trim()) {
     return `转换失败：${detail}`;
   }
+  if (
+    detail &&
+    typeof detail === "object" &&
+    "message" in detail &&
+    typeof detail.message === "string" &&
+    detail.message.trim()
+  ) {
+    return `转换失败：${detail.message}`;
+  }
   if (error.response?.status) {
     return `转换失败：后端返回 ${error.response.status}。`;
   }

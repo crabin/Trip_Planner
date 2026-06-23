@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as DateType, timedelta
 from hashlib import sha256
 import json
-import re
+from pathlib import Path
+from typing import Any, TypeVar
 
-from pydantic import ValidationError
+from markdown_it import MarkdownIt
+from pydantic import BaseModel, ValidationError
 
+from app import config
 from app.agents.report_itinerary_agent.prompts import (
     SYSTEM_PROMPT,
-    build_section_extraction_user_prompt,
+    build_chunk_batch_prompt,
+    build_consolidation_prompt,
 )
 from app.agents.report_itinerary_agent.state import (
+    ChunkExtraction,
+    ChunkExtractionBatch,
     ExtractedDay,
     ExtractedMeal,
     ExtractedReport,
@@ -19,14 +26,15 @@ from app.agents.report_itinerary_agent.state import (
     ReportDayDraft,
     ReportExtractionSection,
 )
-from app.agents.trip_planner_agent.llms import build_chat_llm
-from app.agents.trip_planner_agent.utils import extract_json_object, response_content_to_text
+from app.agents.trip_planner_agent.llms import LLMSettings, build_chat_llm
 from app.models.schemas import (
     BudgetBreakdown,
     DayPlan,
     DeepPlanDocument,
     HotelItem,
     Itinerary,
+    ItineraryConversionMeta,
+    ItineraryOverviewFact,
     MealItem,
     SpotItem,
     TransportItem,
@@ -36,82 +44,62 @@ from app.services.itinerary_display_service import attach_itinerary_display
 from app.services.trip_service import _maybe_enrich_itinerary_with_map_data
 
 
-_DAY_HEADING_PATTERN = re.compile(
-    r"^#{1,4}\s*"
-    r"(?:(20\d{2}-\d{2}-\d{2})(?:[（(][^）)]*[）)])?\s*)?"
-    r"(?:D\s*(\d+)|Day\s*(\d+)|第\s*(\d+)\s*天)"
-    r"[｜|:：\s.-]*(.*)$",
-    flags=re.IGNORECASE | re.MULTILINE,
-)
-_HEADING_PATTERN = re.compile(r"^#{1,4}\s+(.+)$", flags=re.MULTILINE)
-_MARKDOWN_NOISE_PATTERN = re.compile(r"[*_`>#\[\]()]|!\[[^\]]*]\([^)]*\)")
-_DATE_PATTERN = re.compile(r"20\d{2}-\d{2}-\d{2}")
-_PRICE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*元")
-_TOTAL_BUDGET_PATTERN = re.compile(r"(?:预算|总预算|预算约|预算口径)[^。\n]{0,20}?(\d{4,7})\s*元")
-_OVERVIEW_STOP_PATTERN = re.compile(r"^\s*(?:---+|##\s+)", flags=re.MULTILINE)
-_DAY_SECTION_STOP_PATTERN = re.compile(r"^#{1,4}\s+", flags=re.MULTILINE)
-_PLACE_SPLIT_PATTERN = re.compile(r"[+/／、，,]|(?:\s+[+＋]\s+)|与|和")
-_PLACE_ALIASES = {
-    "天安门区域": "天安门广场",
-    "天安门": "天安门广场",
-    "故宫": "故宫博物院",
-    "景山": "景山公园",
-    "前门": "前门大街",
-    "大栅栏": "大栅栏",
-    "王府井": "王府井",
-    "东单": "东单",
-    "慕田峪": "慕田峪长城",
-    "八达岭": "八达岭长城",
-    "长城": "慕田峪长城",
-    "颐和园": "颐和园",
-    "圆明园": "圆明园",
-    "什刹海": "什刹海",
-    "鼓楼": "鼓楼",
-    "胡同": "北京胡同",
-    "南锣鼓巷": "南锣鼓巷",
-}
-_NON_POI_TERMS = (
-    "长沙",
-    "北京入住",
-    "入住",
-    "出发",
-    "返程",
-    "回长沙",
-    "酒店",
-    "午餐",
-    "晚餐",
-    "早餐",
-    "美食",
-    "预算",
-    "成人",
-    "安排",
-    "适应",
-    "机动",
-    "补漏",
-    "待确认",
-    "当前",
-    "旺季",
-    "工作日",
-    "参考",
-    "规则",
-    "开放",
-    "选择理由",
-    "高度适配",
-    "老北京",
-    "中轴线",
-    "园林",
-    "区域",
-    "酒店",
-    "打车",
-    "包车",
-)
-_ACTION_SUFFIX_PATTERN = re.compile(
-    r"(?:轻量适应|重点日|核心日|舒缓日|氛围日|深度美食日|散步|晚餐|小吃尝鲜|尝鲜|往返|"
-    r"日组|区域|商圈|附近|重点|经典|活动|补给|休息|入住|退房).*$"
-)
-_LLM_CONVERSION_MARKER = "report-itinerary-conversion:llm-v1"
-_FALLBACK_CONVERSION_MARKER = "report-itinerary-conversion:fallback-v1"
-_EXTRACTED_REPORT_JSON_VERSION = "report-section-extraction-json-v1"
+_CONVERSION_VERSION = "report-itinerary-llm-v2"
+_EXTRACTED_REPORT_JSON_VERSION = "report-section-extraction-json-v2"
+_MAX_BATCH_CHUNKS = 6
+_MAX_BATCH_CHARS = 6000
+_MAX_CONCURRENT_BATCHES = 3
+_STRUCTURED_ATTEMPTS = 2
+
+
+class ReportConversionError(RuntimeError):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int,
+        retryable: bool = True,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.retryable = retryable
+        self.details = details or {}
+
+    def as_detail(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "retryable": self.retryable,
+            **self.details,
+        }
+
+
+class ReportConversionUnavailableError(ReportConversionError):
+    def __init__(self, message: str = "结构化转换服务暂时不可用，请稍后重试。") -> None:
+        super().__init__(
+            "report_conversion_unavailable",
+            message,
+            status_code=503,
+        )
+
+
+class ReportConversionIncompleteError(ReportConversionError):
+    def __init__(
+        self,
+        message: str = "Report 小结提取不完整，未生成结果页。",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            "report_conversion_incomplete",
+            message,
+            status_code=422,
+            details=details,
+        )
 
 
 _ReportDayDraft = ReportDayDraft
@@ -121,13 +109,19 @@ _ExtractedDay = ExtractedDay
 _ExtractedReport = ExtractedReport
 _ReportExtractionSection = ReportExtractionSection
 
+_SchemaT = TypeVar("_SchemaT", bound=BaseModel)
+
 
 def _cache_trip_id(prefix: str, source_id: str) -> str:
     digest = sha256(source_id.encode("utf-8")).hexdigest()[:16]
     return f"{prefix}_{digest}"
 
 
-def _extracted_report_json_dir():
+def _source_sha256(markdown: str) -> str:
+    return sha256(markdown.encode("utf-8")).hexdigest()
+
+
+def _extracted_report_json_dir() -> Path:
     return report_catalog_service.REPORT_DIR / "structured_itineraries"
 
 
@@ -135,7 +129,20 @@ def _extracted_report_json_path(cache_prefix: str, source_id: str) -> str:
     return str(_extracted_report_json_dir() / f"{_cache_trip_id(cache_prefix, source_id)}.json")
 
 
-def _load_extracted_report_json(cache_prefix: str, source_id: str) -> _ExtractedReport | None:
+def _extracted_report_json_file(cache_prefix: str, source_id: str) -> Path:
+    return _extracted_report_json_dir() / f"{_cache_trip_id(cache_prefix, source_id)}.json"
+
+
+def _chunk_checkpoint_path(cache_prefix: str, source_id: str) -> Path:
+    return _extracted_report_json_dir() / f"{_cache_trip_id(cache_prefix, source_id)}.chunks.json"
+
+
+def _load_extracted_report_json(
+    cache_prefix: str,
+    source_id: str,
+    *,
+    source_sha256: str | None = None,
+) -> _ExtractedReport | None:
     path = _extracted_report_json_dir() / f"{_cache_trip_id(cache_prefix, source_id)}.json"
     if not path.is_file():
         return None
@@ -145,29 +152,146 @@ def _load_extracted_report_json(cache_prefix: str, source_id: str) -> _Extracted
             return None
         if payload.get("source_id") != source_id or payload.get("cache_prefix") != cache_prefix:
             return None
+        if source_sha256 is not None and payload.get("source_sha256") != source_sha256:
+            return None
+        if payload.get("quality_passed") is not True:
+            return None
+        if payload.get("completed_chunk_count") != payload.get("chunk_count"):
+            return None
         return _ExtractedReport.model_validate(payload.get("extracted_report"))
     except (OSError, json.JSONDecodeError, ValidationError, TypeError, ValueError):
         return None
+
+
+def _checkpoint_key(
+    *,
+    cache_prefix: str,
+    source_id: str,
+    source_sha256: str,
+    model: str,
+    chunk_count: int,
+) -> dict[str, Any]:
+    return {
+        "version": _EXTRACTED_REPORT_JSON_VERSION,
+        "converter_version": _CONVERSION_VERSION,
+        "cache_prefix": cache_prefix,
+        "source_id": source_id,
+        "source_sha256": source_sha256,
+        "model": model,
+        "chunk_count": chunk_count,
+    }
+
+
+def _load_chunk_checkpoint(
+    *,
+    cache_prefix: str,
+    source_id: str,
+    source_sha256: str,
+    model: str,
+    chunk_count: int,
+) -> dict[str, ChunkExtraction]:
+    path = _chunk_checkpoint_path(cache_prefix, source_id)
+    if not path.is_file():
+        return {}
+    expected = _checkpoint_key(
+        cache_prefix=cache_prefix,
+        source_id=source_id,
+        source_sha256=source_sha256,
+        model=model,
+        chunk_count=chunk_count,
+    )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        for key, value in expected.items():
+            if payload.get(key) != value:
+                return {}
+        chunks = payload.get("chunks")
+        if not isinstance(chunks, dict):
+            return {}
+        loaded: dict[str, ChunkExtraction] = {}
+        for chunk_id, chunk_payload in chunks.items():
+            chunk = ChunkExtraction.model_validate(chunk_payload)
+            if chunk.chunk_id == chunk_id:
+                loaded[chunk_id] = chunk
+        return loaded
+    except (OSError, json.JSONDecodeError, ValidationError, TypeError, ValueError):
+        return {}
+
+
+def _save_chunk_checkpoint(
+    *,
+    cache_prefix: str,
+    source_id: str,
+    source_sha256: str,
+    model: str,
+    chunk_count: int,
+    chunks: dict[str, ChunkExtraction],
+) -> None:
+    json_dir = _extracted_report_json_dir()
+    json_dir.mkdir(parents=True, exist_ok=True)
+    path = _chunk_checkpoint_path(cache_prefix, source_id)
+    temp_path = path.with_suffix(".chunks.json.tmp")
+    payload = {
+        **_checkpoint_key(
+            cache_prefix=cache_prefix,
+            source_id=source_id,
+            source_sha256=source_sha256,
+            model=model,
+            chunk_count=chunk_count,
+        ),
+        "completed_chunk_count": len(chunks),
+        "chunks": {
+            chunk_id: chunk.model_dump(mode="json")
+            for chunk_id, chunk in sorted(chunks.items())
+        },
+    }
+    temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(path)
+
+
+def _delete_chunk_checkpoint(cache_prefix: str, source_id: str) -> None:
+    try:
+        _chunk_checkpoint_path(cache_prefix, source_id).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _delete_extracted_report_json(cache_prefix: str, source_id: str) -> None:
+    try:
+        _extracted_report_json_file(cache_prefix, source_id).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _save_extracted_report_json(
     *,
     cache_prefix: str,
     source_id: str,
+    source_sha256: str,
     extracted: _ExtractedReport,
     section_count: int,
+    completed_section_count: int | None = None,
+    model: str = "",
 ) -> None:
     json_dir = _extracted_report_json_dir()
     json_dir.mkdir(parents=True, exist_ok=True)
     path = json_dir / f"{_cache_trip_id(cache_prefix, source_id)}.json"
+    temp_path = path.with_suffix(".json.tmp")
+    completed = completed_section_count if completed_section_count is not None else section_count
     payload = {
         "version": _EXTRACTED_REPORT_JSON_VERSION,
+        "converter_version": _CONVERSION_VERSION,
         "cache_prefix": cache_prefix,
         "source_id": source_id,
-        "section_count": section_count,
+        "source_sha256": source_sha256,
+        "model": model,
+        "chunk_count": section_count,
+        "completed_chunk_count": completed,
+        "quality_passed": True,
         "extracted_report": extracted.model_dump(mode="json"),
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(path)
 
 
 def _parse_date(value: str | None) -> DateType | None:
@@ -179,73 +303,315 @@ def _parse_date(value: str | None) -> DateType | None:
         return None
 
 
-def _strip_markdown(value: str) -> str:
-    value = re.sub(r"\[([^\]]+)]\([^)]*\)", r"\1", value)
-    value = _MARKDOWN_NOISE_PATTERN.sub("", value)
-    value = re.sub(r"\s+", " ", value)
-    return value.strip(" \t-•|，,。；;：:")
+def _build_llm_extraction_sections(
+    markdown: str,
+    destination: str = "",
+) -> list[_ReportExtractionSection]:
+    """Split Markdown by syntax only; semantic classification belongs to the LLM."""
+
+    del destination
+    lines = markdown.splitlines(keepends=True)
+    tokens = MarkdownIt("commonmark").parse(markdown)
+    headings: list[tuple[int, int, str]] = []
+    for index, token in enumerate(tokens):
+        if token.type != "heading_open" or token.map is None:
+            continue
+        level = int(token.tag.removeprefix("h"))
+        if level not in {1, 2, 3}:
+            continue
+        title = tokens[index + 1].content.strip() if index + 1 < len(tokens) else ""
+        headings.append((level, token.map[0], title))
+
+    if not headings:
+        return [
+            _ReportExtractionSection(
+                section_id="chunk-001-full-report",
+                section_type="chunk",
+                title="完整 Report",
+                markdown=markdown,
+                heading_path=("完整 Report",),
+                order=1,
+            )
+        ]
+
+    sections: list[_ReportExtractionSection] = []
+    order = 0
+    first_h2_start = next((start for level, start, _ in headings if level == 2), len(lines))
+    root_title = next((title for level, _, title in headings if level == 1), "Report 概览")
+    root_markdown = "".join(lines[:first_h2_start]).strip()
+    if root_markdown:
+        order += 1
+        sections.append(
+            _make_section(
+                order=order,
+                heading_path=(root_title,),
+                markdown=root_markdown,
+            )
+        )
+
+    h2_headings = [(start, title) for level, start, title in headings if level == 2]
+    if not h2_headings:
+        if sections:
+            return sections
+        return [
+            _make_section(order=1, heading_path=(root_title,), markdown=markdown.strip())
+        ]
+
+    h3_headings = [(start, title) for level, start, title in headings if level == 3]
+    for h2_index, (h2_start, h2_title) in enumerate(h2_headings):
+        h2_end = h2_headings[h2_index + 1][0] if h2_index + 1 < len(h2_headings) else len(lines)
+        children = [(start, title) for start, title in h3_headings if h2_start < start < h2_end]
+        preamble_end = children[0][0] if children else h2_end
+        preamble = "".join(lines[h2_start:preamble_end]).strip()
+        if preamble:
+            order += 1
+            sections.append(
+                _make_section(
+                    order=order,
+                    heading_path=(h2_title,),
+                    markdown=preamble,
+                )
+            )
+        for child_index, (child_start, child_title) in enumerate(children):
+            child_end = children[child_index + 1][0] if child_index + 1 < len(children) else h2_end
+            child_markdown = "".join(lines[child_start:child_end]).strip()
+            if not child_markdown:
+                continue
+            order += 1
+            sections.append(
+                _make_section(
+                    order=order,
+                    heading_path=(h2_title, child_title),
+                    markdown=child_markdown,
+                )
+            )
+    return sections
 
 
-def _strip_markdown_line(value: str) -> str:
-    value = re.sub(r"^\s*>\s?", "", value)
-    value = re.sub(r"\*\*([^*]+)\*\*", r"\1", value)
-    value = re.sub(r"\[([^\]]+)]\([^)]*\)", r"\1", value)
-    value = re.sub(r"^[\s\-•*\d.]+", "", value)
-    return value.strip()
+def _make_section(
+    *,
+    order: int,
+    heading_path: tuple[str, ...],
+    markdown: str,
+) -> _ReportExtractionSection:
+    path_text = " / ".join(heading_path)
+    digest = sha256(path_text.encode("utf-8")).hexdigest()[:8]
+    return _ReportExtractionSection(
+        section_id=f"chunk-{order:03d}-{digest}",
+        section_type="chunk",
+        title=heading_path[-1],
+        markdown=markdown,
+        heading_path=heading_path,
+        order=order,
+    )
 
 
-def _shorten_name(value: str, destination: str, max_len: int = 28) -> str | None:
-    cleaned = _strip_markdown(value)
-    cleaned = re.sub(r"^(?:景点|游览|餐饮|美食|午餐|晚餐|酒店|住宿|推荐|地点)\s*[：:]", "", cleaned)
-    cleaned = re.split(r"[，,。；;｜|/、]", cleaned, maxsplit=1)[0].strip()
-    cleaned = re.sub(r"\s*(?:约|预计|建议|可|适合|门票|人均|价格).*$", "", cleaned).strip()
-    if len(cleaned) < 2:
-        return None
-    if len(cleaned) > max_len:
-        cleaned = cleaned[:max_len].rstrip()
-    if cleaned == destination:
-        return None
-    return cleaned
+def _batch_sections(
+    sections: list[_ReportExtractionSection],
+) -> list[list[_ReportExtractionSection]]:
+    batches: list[list[_ReportExtractionSection]] = []
+    current: list[_ReportExtractionSection] = []
+    current_chars = 0
+    for section in sections:
+        size = len(section.markdown)
+        if current and (
+            len(current) >= _MAX_BATCH_CHUNKS or current_chars + size > _MAX_BATCH_CHARS
+        ):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(section)
+        current_chars += size
+    if current:
+        batches.append(current)
+    return batches
 
 
-def _normalize_place_name(value: str, destination: str) -> str | None:
-    cleaned = _strip_markdown(value)
-    cleaned = cleaned.replace("（可选）", "").replace("(可选)", "")
-    cleaned = re.sub(r"^(?:若到得早|若晚到|可二选一轻量活动|优先|备选|当天|主要景点|景点/体验)\s*[：:]?", "", cleaned)
-    cleaned = _ACTION_SUFFIX_PATTERN.sub("", cleaned).strip(" ：:，,。；;/-")
-    if (
-        not cleaned
-        or any(term in cleaned for term in _NON_POI_TERMS)
-        or re.search(r"\d{1,2}[:：]\d{2}", cleaned)
-    ):
-        return None
-    for alias, place_name in _PLACE_ALIASES.items():
-        if alias in cleaned:
-            return place_name
-    cleaned = _shorten_name(cleaned, destination, max_len=20)
-    if not cleaned or any(term in cleaned for term in _NON_POI_TERMS):
-        return None
-    if len(cleaned) < 2 or len(cleaned) > 20:
-        return None
-    return cleaned
+def _structured_runnable(llm: Any, schema: type[_SchemaT]):
+    try:
+        return llm.with_structured_output(
+            schema,
+            method="function_calling",
+            strict=False,
+        )
+    except Exception as exc:
+        raise ReportConversionUnavailableError("当前模型不支持严格结构化输出。") from exc
 
 
-def _unique(values: list[str], limit: int) -> tuple[str, ...]:
-    result: list[str] = []
-    for value in values:
-        if value and value not in result:
-            result.append(value)
-        if len(result) >= limit:
-            break
-    return tuple(result)
+def _invoke_structured(
+    *,
+    llm: Any,
+    schema: type[_SchemaT],
+    user_prompt: str,
+) -> _SchemaT:
+    runnable = _structured_runnable(llm, schema)
+    last_error: Exception | None = None
+    validation_error: ValidationError | None = None
+    for _ in range(_STRUCTURED_ATTEMPTS):
+        try:
+            result = runnable.invoke([("system", SYSTEM_PROMPT), ("human", user_prompt)])
+            return result if isinstance(result, schema) else schema.model_validate(result)
+        except ReportConversionError:
+            raise
+        except ValidationError as exc:
+            validation_error = exc
+            last_error = exc
+        except Exception as exc:
+            last_error = exc
+    if validation_error is not None:
+        raise ReportConversionIncompleteError(
+            details={"reason": "structured_output_validation_failed"}
+        ) from validation_error
+    raise ReportConversionUnavailableError() from last_error
 
 
-def _extract_total_budget(markdown: str) -> float:
-    for match in _TOTAL_BUDGET_PATTERN.finditer(markdown):
-        value = float(match.group(1))
-        if 1000 <= value <= 1_000_000:
-            return value
-    return 0.0
+def _extract_batch_with_llm(
+    *,
+    llm: Any,
+    sections: list[_ReportExtractionSection],
+    destination: str,
+    title: str,
+) -> list[ChunkExtraction]:
+    prompt = build_chunk_batch_prompt(
+        sections=sections,
+        destination=destination,
+        title=title,
+    )
+    expected_ids = [section.section_id for section in sections]
+    last_received: list[str] = []
+    for _ in range(_STRUCTURED_ATTEMPTS):
+        batch = _invoke_structured(
+            llm=llm,
+            schema=ChunkExtractionBatch,
+            user_prompt=prompt,
+        )
+        received_ids = [item.chunk_id for item in batch.extractions]
+        last_received = received_ids
+        if len(received_ids) == len(set(received_ids)) and set(received_ids) == set(expected_ids):
+            by_id = {item.chunk_id: item for item in batch.extractions}
+            return [by_id[chunk_id] for chunk_id in expected_ids]
+    missing = sorted(set(expected_ids) - set(last_received))
+    unexpected = sorted(set(last_received) - set(expected_ids))
+    raise ReportConversionIncompleteError(
+        details={"missing_chunk_ids": missing, "unexpected_chunk_ids": unexpected}
+    )
+
+
+def _extract_report_section_with_llm(
+    *,
+    llm: Any,
+    section: _ReportExtractionSection,
+    destination: str,
+    title: str,
+) -> _ExtractedReport | None:
+    extraction = _extract_batch_with_llm(
+        llm=llm,
+        sections=[section],
+        destination=destination,
+        title=title,
+    )[0]
+    return extraction.extracted
+
+
+def _merge_unique_by_key(items: list[Any], key_func) -> list[Any]:
+    seen: set[tuple[Any, ...]] = set()
+    merged: list[Any] = []
+    for item in items:
+        key = key_func(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged
+
+
+def _merge_day(existing: ExtractedDay, incoming: ExtractedDay) -> ExtractedDay:
+    return existing.model_copy(
+        update={
+            "theme": existing.theme or incoming.theme,
+            "full_day_text": "\n\n".join(
+                text
+                for text in [existing.full_day_text.strip(), incoming.full_day_text.strip()]
+                if text
+            ),
+            "spots": _merge_unique_by_key(
+                [*existing.spots, *incoming.spots],
+                lambda spot: (spot.name.strip(), spot.map_query.strip()),
+            ),
+            "meals": _merge_unique_by_key(
+                [*existing.meals, *incoming.meals],
+                lambda meal: (meal.name.strip(), meal.meal_type.strip(), meal.map_query.strip()),
+            ),
+            "hotel_name": existing.hotel_name or incoming.hotel_name,
+            "hotel_query": existing.hotel_query or incoming.hotel_query,
+            "hotel_level": existing.hotel_level or incoming.hotel_level,
+            "hotel_cost": existing.hotel_cost if existing.hotel_cost is not None else incoming.hotel_cost,
+            "transport_note": existing.transport_note or incoming.transport_note,
+            "transport": _merge_unique_by_key(
+                [*existing.transport, *incoming.transport],
+                lambda item: (
+                    item.mode,
+                    item.from_place,
+                    item.to_place,
+                    item.duration,
+                    item.estimated_cost,
+                ),
+            ),
+            "source_chunk_ids": list(
+                dict.fromkeys([*existing.source_chunk_ids, *incoming.source_chunk_ids])
+            ),
+        }
+    )
+
+
+def _consolidate_extractions(extractions: list[ChunkExtraction]) -> _ExtractedReport:
+    overview = ""
+    overview_facts = []
+    tips: list[str] = []
+    days_by_key: dict[tuple[int, str], ExtractedDay] = {}
+    total_budget = 0.0
+    start_date: str | None = None
+    end_date: str | None = None
+    source_chunk_ids: list[str] = []
+
+    for chunk in extractions:
+        extracted = chunk.extracted
+        if extracted.overview and not overview:
+            overview = extracted.overview
+        for fact in extracted.overview_facts:
+            if not fact.source_chunk_ids:
+                fact = fact.model_copy(update={"source_chunk_ids": [chunk.chunk_id]})
+            overview_facts.append(fact)
+        if extracted.total_budget > 0:
+            total_budget = total_budget or extracted.total_budget
+        start_date = start_date or extracted.start_date
+        end_date = extracted.end_date or end_date
+        for tip in extracted.tips:
+            if tip and tip not in tips:
+                tips.append(tip)
+        source_chunk_ids.append(chunk.chunk_id)
+        for day in extracted.days:
+            day_sources = day.source_chunk_ids or [chunk.chunk_id]
+            day = day.model_copy(update={"source_chunk_ids": day_sources})
+            key = (day.day_index, day.date or "")
+            days_by_key[key] = _merge_day(days_by_key[key], day) if key in days_by_key else day
+
+    deduped_facts = _merge_unique_by_key(
+        overview_facts,
+        lambda fact: (fact.key.strip(), fact.value.strip()),
+    )
+    days = sorted(days_by_key.values(), key=lambda item: (item.day_index, item.date or ""))
+    return _ExtractedReport(
+        overview=overview,
+        overview_facts=deduped_facts,
+        start_date=start_date,
+        end_date=end_date,
+        total_days=len(days) or None,
+        total_budget=total_budget,
+        tips=tips,
+        days=days,
+        source_chunk_ids=list(dict.fromkeys(source_chunk_ids)),
+    )
 
 
 def _extract_report_with_llm(
@@ -256,585 +622,347 @@ def _extract_report_with_llm(
     source_id: str | None = None,
     cache_prefix: str | None = None,
     force_rebuild: bool = False,
-) -> _ExtractedReport | None:
-    """Use the configured LLM to extract each report section into fixed JSON."""
-    try:
-        llm = build_chat_llm()
-    except Exception:
-        llm = None
-    if llm is None:
-        return None
-
+    start_date: DateType | None = None,
+    end_date: DateType | None = None,
+) -> _ExtractedReport:
+    fingerprint = _source_sha256(markdown)
+    if source_id and cache_prefix and force_rebuild:
+        _delete_extracted_report_json(cache_prefix, source_id)
+        _delete_chunk_checkpoint(cache_prefix, source_id)
     if source_id and cache_prefix and not force_rebuild:
-        cached = _load_extracted_report_json(cache_prefix, source_id)
-        if cached is not None and cached.days:
-            return cached
+        cached = _load_extracted_report_json(
+            cache_prefix,
+            source_id,
+            source_sha256=fingerprint,
+        )
+        if cached is not None:
+            return _validate_extracted_report(cached, start_date=start_date, end_date=end_date)
+
+    try:
+        llm = build_chat_llm(
+            LLMSettings(
+                api_key=config.LLM_API_KEY,
+                model=config.LLM_MODEL,
+                base_url=config.LLM_BASE_URL,
+                timeout_seconds=config.REPORT_ITINERARY_LLM_TIMEOUT_SECONDS,
+                max_retries=config.LLM_MAX_RETRIES,
+            )
+        )
+    except Exception as exc:
+        raise ReportConversionUnavailableError() from exc
+    if llm is None:
+        raise ReportConversionUnavailableError()
 
     sections = _build_llm_extraction_sections(markdown, destination)
-    partial_reports: list[_ExtractedReport] = []
-    for section in sections:
-        extracted_section = _extract_report_section_with_llm(
-            llm=llm,
-            section=section,
-            destination=destination,
-            title=title,
+    batches = _batch_sections(sections)
+    model = _model_name(llm)
+    expected_ids = {section.section_id for section in sections}
+    checkpoint_chunks: dict[str, ChunkExtraction] = {}
+    if source_id and cache_prefix and not force_rebuild:
+        checkpoint_chunks = _load_chunk_checkpoint(
+            cache_prefix=cache_prefix,
+            source_id=source_id,
+            source_sha256=fingerprint,
+            model=model,
+            chunk_count=len(sections),
         )
-        if extracted_section is not None:
-            partial_reports.append(extracted_section)
+        checkpoint_chunks = {
+            chunk_id: chunk
+            for chunk_id, chunk in checkpoint_chunks.items()
+            if chunk_id in expected_ids
+        }
 
-    extracted = _merge_extracted_reports(partial_reports)
-    if extracted is None or not extracted.days:
-        return None
+    missing_batches = [
+        (
+            index,
+            [
+                section
+                for section in batch
+                if section.section_id not in checkpoint_chunks
+            ],
+        )
+        for index, batch in enumerate(batches)
+        if any(section.section_id not in checkpoint_chunks for section in batch)
+    ]
+    max_workers = max(
+        1,
+        min(
+            config.REPORT_ITINERARY_MAX_CONCURRENT_BATCHES,
+            _MAX_CONCURRENT_BATCHES,
+            len(missing_batches) or 1,
+        ),
+    )
+    if missing_batches:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(
+                    _extract_batch_with_llm,
+                    llm=llm,
+                    sections=batch,
+                    destination=destination,
+                    title=title,
+                ): index
+                for index, batch in missing_batches
+            }
+            for future in as_completed(future_map):
+                batch_index = future_map[future]
+                batch_result = future.result()
+                for extraction in batch_result:
+                    checkpoint_chunks[extraction.chunk_id] = extraction
+                if source_id and cache_prefix:
+                    try:
+                        _save_chunk_checkpoint(
+                            cache_prefix=cache_prefix,
+                            source_id=source_id,
+                            source_sha256=fingerprint,
+                            model=model,
+                            chunk_count=len(sections),
+                            chunks=checkpoint_chunks,
+                        )
+                    except OSError:
+                        pass
+
+    extractions = [
+        checkpoint_chunks[section.section_id]
+        for section in sections
+        if section.section_id in checkpoint_chunks
+    ]
+    completed_ids = {item.chunk_id for item in extractions}
+    if completed_ids != expected_ids:
+        raise ReportConversionIncompleteError(
+            details={"missing_chunk_ids": sorted(expected_ids - completed_ids)}
+        )
+
+    consolidated = _consolidate_extractions(extractions)
+    consolidated = _validate_extracted_report(
+        consolidated,
+        start_date=start_date,
+        end_date=end_date,
+    )
     if source_id and cache_prefix:
         try:
             _save_extracted_report_json(
                 cache_prefix=cache_prefix,
                 source_id=source_id,
-                extracted=extracted,
+                source_sha256=fingerprint,
+                extracted=consolidated,
                 section_count=len(sections),
+                completed_section_count=len(extractions),
+                model=model,
             )
+            _delete_chunk_checkpoint(cache_prefix, source_id)
         except OSError:
             pass
-    return extracted
+    return consolidated
 
 
-def _extract_report_section_with_llm(
+def _model_name(llm: Any | None = None) -> str:
+    value = getattr(llm, "model_name", None) or getattr(llm, "model", None)
+    return str(value or config.LLM_MODEL or "")
+
+
+def _validate_extracted_report(
+    extracted: _ExtractedReport,
     *,
-    llm,
-    section: _ReportExtractionSection,
-    destination: str,
-    title: str,
-) -> _ExtractedReport | None:
-    user_prompt = build_section_extraction_user_prompt(
-        section=section,
-        destination=destination,
-        title=title,
+    start_date: DateType | None,
+    end_date: DateType | None,
+) -> _ExtractedReport:
+    days = sorted(extracted.days, key=lambda item: item.day_index)
+    if not days:
+        raise ReportConversionIncompleteError(details={"reason": "no_days"})
+    expected_indices = list(range(1, len(days) + 1))
+    actual_indices = [day.day_index for day in days]
+    if actual_indices != expected_indices:
+        raise ReportConversionIncompleteError(
+            details={"reason": "non_contiguous_day_indices", "day_indices": actual_indices}
+        )
+    for day in days:
+        has_structured_content = bool(
+            day.spots
+            or day.meals
+            or day.hotel_name.strip()
+            or day.transport
+            or day.transport_note.strip()
+        )
+        if not day.full_day_text.strip() and not has_structured_content:
+            raise ReportConversionIncompleteError(details={"reason": "incomplete_day_content"})
+
+    resolved_start = start_date or _parse_date(extracted.start_date)
+    resolved_end = end_date or _parse_date(extracted.end_date)
+    parsed_dates = [_parse_date(day.date) for day in days]
+    if resolved_start is not None and resolved_end is not None:
+        expected_count = (resolved_end - resolved_start).days + 1
+        expected_dates = [resolved_start + timedelta(days=index) for index in range(expected_count)]
+        if expected_count < 1 or len(days) != expected_count or parsed_dates != expected_dates:
+            raise ReportConversionIncompleteError(
+                details={
+                    "reason": "date_range_mismatch",
+                    "expected_days": expected_count,
+                    "actual_days": len(days),
+                }
+            )
+    elif any(value is not None for value in parsed_dates):
+        if any(value is None for value in parsed_dates) or len(set(parsed_dates)) != len(parsed_dates):
+            raise ReportConversionIncompleteError(details={"reason": "invalid_day_dates"})
+        assert all(value is not None for value in parsed_dates)
+        for previous, current in zip(parsed_dates, parsed_dates[1:]):
+            if current != previous + timedelta(days=1):
+                raise ReportConversionIncompleteError(details={"reason": "non_contiguous_day_dates"})
+        resolved_start = parsed_dates[0]
+        resolved_end = parsed_dates[-1]
+
+    if extracted.total_days is not None and extracted.total_days != len(days):
+        raise ReportConversionIncompleteError(
+            details={"reason": "total_days_mismatch", "actual_days": len(days)}
+        )
+    return extracted.model_copy(
+        update={
+            "days": days,
+            "start_date": resolved_start.isoformat() if resolved_start else extracted.start_date,
+            "end_date": resolved_end.isoformat() if resolved_end else extracted.end_date,
+            "total_days": len(days),
+        }
     )
-    try:
-        response = llm.invoke([("system", SYSTEM_PROMPT), ("human", user_prompt)])
-    except Exception:
-        return None
-
-    raw_text = response_content_to_text(response)
-    json_text = extract_json_object(raw_text)
-    if json_text is None:
-        return None
-    try:
-        extracted = _ExtractedReport.model_validate(json.loads(json_text))
-    except (json.JSONDecodeError, ValidationError, TypeError, ValueError):
-        return None
-    if not extracted.days:
-        if extracted.overview or extracted.total_budget > 0 or extracted.tips:
-            return extracted
-        return None
-    return extracted
-
-
-def _build_llm_extraction_sections(markdown: str, destination: str) -> list[_ReportExtractionSection]:
-    sections: list[_ReportExtractionSection] = []
-    daily_match = re.search(r"^##\s+每日行程\s*$", markdown, flags=re.MULTILINE)
-    first_day_match = _DAY_HEADING_PATTERN.search(markdown)
-    overview_end_candidates = [
-        match.start()
-        for match in (daily_match, first_day_match)
-        if match is not None and match.start() > 0
-    ]
-    overview_end = min(overview_end_candidates) if overview_end_candidates else min(len(markdown), 5000)
-    overview_markdown = markdown[:overview_end].strip()
-    if overview_markdown:
-        sections.append(
-            _ReportExtractionSection(
-                section_id="overview",
-                section_type="overview",
-                title="Report 概览",
-                markdown=overview_markdown,
-            )
-        )
-
-    day_matches = list(_DAY_HEADING_PATTERN.finditer(markdown))
-    used_ranges: list[tuple[int, int]] = []
-    for index, match in enumerate(day_matches):
-        start = match.start()
-        next_day_start = day_matches[index + 1].start() if index + 1 < len(day_matches) else len(markdown)
-        next_major = re.search(r"^##\s+(?!每日行程).+$", markdown[match.end():next_day_start], flags=re.MULTILINE)
-        end = match.end() + next_major.start() if next_major else next_day_start
-        section_markdown = markdown[start:end].strip()
-        if not section_markdown:
-            continue
-        day_index = next((group for group in match.groups()[1:4] if group), str(index + 1))
-        sections.append(
-            _ReportExtractionSection(
-                section_id=f"day-{day_index}",
-                section_type="day",
-                title=_strip_markdown(match.group(0)) or f"{destination} Day {day_index}",
-                markdown=section_markdown,
-            )
-        )
-        used_ranges.append((start, end))
-
-    for index, match in enumerate(re.finditer(r"^##\s+(.+)$", markdown, flags=re.MULTILINE), start=1):
-        heading = _strip_markdown(match.group(1))
-        if "每日行程" in heading:
-            continue
-        if any(start <= match.start() < end for start, end in used_ranges):
-            continue
-        next_match = re.search(r"^##\s+(.+)$", markdown[match.end():], flags=re.MULTILINE)
-        end = match.end() + next_match.start() if next_match else len(markdown)
-        section_markdown = markdown[match.start():end].strip()
-        if section_markdown:
-            sections.append(
-                _ReportExtractionSection(
-                    section_id=f"supplement-{index}",
-                    section_type="supplement",
-                    title=heading,
-                    markdown=section_markdown,
-                )
-            )
-
-    if not sections:
-        sections.append(
-            _ReportExtractionSection(
-                section_id="full-report",
-                section_type="full",
-                title="完整 Report",
-                markdown=markdown[:14000],
-            )
-        )
-    return sections
-
-
-def _merge_extracted_reports(partial_reports: list[_ExtractedReport]) -> _ExtractedReport | None:
-    if not partial_reports:
-        return None
-
-    overview = next((report.overview.strip() for report in partial_reports if report.overview.strip()), "")
-    total_budget = next((report.total_budget for report in partial_reports if report.total_budget > 0), 0.0)
-    tips: list[str] = []
-    days_by_index: dict[int, _ExtractedDay] = {}
-
-    for report in partial_reports:
-        for tip in report.tips:
-            cleaned_tip = tip.strip()
-            if cleaned_tip and cleaned_tip not in tips:
-                tips.append(cleaned_tip)
-        for day in report.days:
-            existing = days_by_index.get(day.day_index)
-            if existing is None:
-                days_by_index[day.day_index] = day
-                continue
-            days_by_index[day.day_index] = _ExtractedDay(
-                day_index=day.day_index,
-                date=existing.date or day.date,
-                theme=existing.theme or day.theme,
-                full_day_text=existing.full_day_text or day.full_day_text,
-                spots=[*existing.spots, *day.spots],
-                meals=[*existing.meals, *day.meals],
-                hotel_name=existing.hotel_name or day.hotel_name,
-                hotel_query=existing.hotel_query or day.hotel_query,
-                transport_note=existing.transport_note or day.transport_note,
-            )
-
-    return _ExtractedReport(
-        overview=overview,
-        total_budget=total_budget,
-        tips=tips,
-        days=sorted(days_by_index.values(), key=lambda day: day.day_index),
-    )
-
-
-def _build_compact_llm_source(markdown: str) -> str:
-    overview = _extract_overview(markdown, "")
-    daily_match = re.search(r"^##\s+每日行程\s*$", markdown, flags=re.MULTILINE)
-    if not daily_match:
-        return markdown[:12000]
-
-    tail = markdown[daily_match.start():]
-    next_section = re.search(r"^##\s+(?!每日行程).+$", tail[daily_match.end() - daily_match.start():], flags=re.MULTILINE)
-    daily_section = tail[: daily_match.end() - daily_match.start() + next_section.start()] if next_section else tail
-    return f"{overview}\n\n{daily_section[:14000]}"
-
-
-def _extract_overview(markdown: str, title: str) -> str:
-    start = markdown.find("> 一屏概览")
-    if start < 0:
-        start = markdown.find("一屏概览")
-    if start < 0:
-        heading_match = re.search(r"^#\s+(.+)$", markdown, flags=re.MULTILINE)
-        return heading_match.group(1).strip() if heading_match else title
-
-    tail = markdown[start:]
-    stop_match = _OVERVIEW_STOP_PATTERN.search(tail)
-    overview = tail[: stop_match.start()] if stop_match else tail[:2000]
-    lines = [
-        _strip_markdown_line(line)
-        for line in overview.splitlines()
-        if _strip_markdown_line(line)
-    ]
-    return "\n".join(lines).strip() or title
-
-
-def _extract_section_text(body: str, heading_keywords: tuple[str, ...]) -> str:
-    lines = body.splitlines()
-    capture = False
-    captured: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        heading = _strip_markdown(stripped)
-        is_heading = stripped.startswith("#") or re.match(r"^[-*]\s*(?:\*\*)?[^：:]{2,24}(?:\*\*)?$", stripped)
-        if is_heading:
-            if capture:
-                break
-            capture = any(keyword in heading for keyword in heading_keywords)
-            continue
-        if capture:
-            captured.append(line)
-    return "\n".join(captured).strip()
-
-
-def _extract_day_narrative(body: str, max_chars: int = 1500) -> str:
-    lines: list[str] = []
-    for raw_line in body.splitlines():
-        stripped = _strip_markdown_line(raw_line)
-        if not stripped:
-            continue
-        if stripped in {"景点/体验", "午晚餐或商圈", "当日住宿与回程", "机动时间、体力节奏、备选"}:
-            lines.append(f"【{stripped}】")
-        else:
-            lines.append(stripped)
-    narrative = "\n".join(lines)
-    return narrative[:max_chars].rstrip()
-
-
-def _extract_candidates_from_text(text: str, destination: str, limit: int) -> tuple[str, ...]:
-    candidates: list[str] = []
-    for raw_line in text.splitlines():
-        line = _strip_markdown_line(raw_line)
-        if not line:
-            continue
-        for part in _PLACE_SPLIT_PATTERN.split(line):
-            name = _normalize_place_name(part, destination)
-            if name:
-                candidates.append(name)
-    return _unique(candidates, limit)
-
-
-def _extract_structured_place_names(text: str, destination: str, limit: int) -> tuple[str, ...]:
-    candidates: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        match = re.search(r"(?:^\d+\.\s*|^[-*]\s*)\*\*(.+?)\*\*", line)
-        if not match:
-            continue
-        title = re.sub(r"[（(].*?[）)]", "", match.group(1)).strip()
-        for part in _PLACE_SPLIT_PATTERN.split(title):
-            name = _normalize_place_name(part, destination)
-            if name:
-                candidates.append(name)
-    return _unique(candidates, limit)
-
-
-def _extract_spot_names(title: str, body: str, destination: str, limit: int = 3) -> tuple[str, ...]:
-    title_candidates = list(_extract_candidates_from_text(title, destination, limit=6))
-    experience_section = _extract_section_text(body, ("景点", "体验"))
-    structured_candidates = list(_extract_structured_place_names(experience_section, destination, limit=limit))
-    body_candidates = list(_extract_candidates_from_text(experience_section or body, destination, limit=10))
-
-    # 首日轻量适应常出现“前门/王府井”备选。优先用用户报告中更明确的王府井商圈，
-    # 避免把“前门晚餐/酒店入住”等泛化词误当成主景点。
-    if "王府井" in title + body and ("轻量" in title or "首日" in body):
-        return ("王府井",)
-
-    return _unique([*structured_candidates, *title_candidates, *body_candidates], limit)
-
-
-def _extract_meal_names(body: str, destination: str, limit: int = 2) -> tuple[str, ...]:
-    meal_section = _extract_section_text(body, ("餐", "美食", "商圈"))
-    candidates: list[str] = []
-    for raw_line in (meal_section or body).splitlines():
-        line = _strip_markdown_line(raw_line)
-        if (
-            not line
-            or "→" in line
-            or "回酒店" in line
-            or line in {"午晚餐或商圈", "时间—地点链"}
-            or "选择理由" in line
-            or not any(keyword in line for keyword in ("餐", "吃", "美食", "小吃", "烤鸭", "涮肉", "京味"))
-        ):
-            continue
-        if "王府井" in line:
-            candidates.append("王府井附近京味菜")
-        elif "前门" in line or "大栅栏" in line:
-            candidates.append("前门大栅栏附近京味菜")
-        elif "什刹海" in line or "鼓楼" in line:
-            candidates.append("什刹海鼓楼附近小吃")
-        elif "烤鸭" in line:
-            candidates.append("北京烤鸭")
-        elif "涮肉" in line:
-            candidates.append("北京铜锅涮肉")
-        elif "午餐" in line or "晚餐" in line:
-            continue
-        else:
-            shortened = _shorten_name(line, destination, max_len=24)
-            if shortened and "成人" not in shortened and "预算" not in shortened and len(shortened) > 2:
-                candidates.append(shortened)
-    return _unique(candidates, limit)
-
-
-def _extract_hotel_name(markdown: str, destination: str) -> str:
-    overview = _extract_overview(markdown, "")
-    if "东城核心区" in overview:
-        return f"{destination}东城核心区酒店"
-    for area in ("前门", "崇文门", "东单", "王府井", "东直门", "雍和宫"):
-        if area in overview:
-            return f"{area}附近酒店"
-    return f"{destination}核心区酒店"
-
-
-def _extract_names_from_lines(
-    body: str,
-    destination: str,
-    keywords: tuple[str, ...],
-    limit: int,
-) -> tuple[str, ...]:
-    names: list[str] = []
-    for raw_line in body.splitlines():
-        line = _strip_markdown(raw_line)
-        if not line or not any(keyword in line for keyword in keywords):
-            continue
-        after_label = re.split(r"[：:]", line, maxsplit=1)
-        candidates = [after_label[-1], line]
-        for candidate in candidates:
-            name = _shorten_name(candidate, destination)
-            if name:
-                names.append(name)
-    return _unique(names, limit)
-
-
-def _fallback_headings(markdown: str, destination: str, limit: int) -> tuple[str, ...]:
-    headings: list[str] = []
-    for heading in _HEADING_PATTERN.findall(markdown):
-        cleaned = _shorten_name(heading, destination)
-        if cleaned and not any(term in cleaned for term in ("攻略", "预算", "交通", "来源", "目录")):
-            headings.append(cleaned)
-    return _unique(headings, limit)
-
-
-def _split_day_sections(markdown: str, destination: str) -> list[_ReportDayDraft]:
-    matches = list(_DAY_HEADING_PATTERN.finditer(markdown))
-    if not matches:
-        spot_names = _extract_names_from_lines(
-            markdown,
-            destination,
-            ("景点", "游览", "打卡", "博物馆", "公园", "古城", "海", "寺", "山"),
-            8,
-        ) or _fallback_headings(markdown, destination, 8)
-        meal_names = _extract_names_from_lines(markdown, destination, ("餐", "美食", "小吃", "咖啡"), 8)
-        hotel_names = _extract_names_from_lines(markdown, destination, ("酒店", "住宿", "民宿"), 1)
-        day_count = max(1, min(5, len(spot_names) or 1))
-        return [
-            _ReportDayDraft(
-                day_index=index + 1,
-                date=None,
-                theme=f"{destination}深度攻略 Day {index + 1}",
-                body=markdown,
-                spot_names=tuple(spot_names[index : index + 1]),
-                meal_names=tuple(meal_names[index : index + 1]),
-                hotel_name=hotel_names[0] if hotel_names else None,
-            )
-            for index in range(day_count)
-        ]
-
-    drafts: list[_ReportDayDraft] = []
-    for index, match in enumerate(matches):
-        start = match.end()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown)
-        groups = match.groups()
-        date_value = _parse_date(groups[0]) if groups[0] else None
-        day_index = int(next(group for group in groups[1:4] if group) or index + 1)
-        title_suffix = _strip_markdown(groups[4] or "")
-        body = markdown[start:end]
-        spot_names = _extract_spot_names(title_suffix, body, destination)
-        meal_names = _extract_meal_names(body, destination)
-        hotel_names = _extract_names_from_lines(body, destination, ("酒店", "住宿", "民宿"), 1)
-        drafts.append(
-            _ReportDayDraft(
-                day_index=day_index,
-                date=date_value,
-                theme=title_suffix or f"{destination}深度攻略 Day {day_index}",
-                body=body,
-                spot_names=spot_names,
-                meal_names=meal_names,
-                hotel_name=hotel_names[0] if hotel_names else None,
-            )
-        )
-    return sorted(drafts, key=lambda item: item.day_index)
-
-
-def _estimate_cost(text: str, default: float | None = None) -> float | None:
-    match = _PRICE_PATTERN.search(text)
-    if match:
-        return float(match.group(1))
-    if "免费" in text:
-        return 0.0
-    return default
 
 
 def _apply_report_budget(itinerary: Itinerary, report_budget: float) -> Itinerary:
-    if report_budget > 0:
-        itinerary.estimated_budget = report_budget
-        itinerary.budget_breakdown = BudgetBreakdown(other=report_budget, total=report_budget)
-    else:
-        itinerary.estimated_budget = 0.0
-        itinerary.budget_breakdown = BudgetBreakdown()
+    itinerary.estimated_budget = report_budget if report_budget > 0 else 0.0
+    itinerary.budget_breakdown = BudgetBreakdown(total=itinerary.estimated_budget)
     return itinerary
 
 
 def _itinerary_from_extracted_report(
     *,
     source_id: str,
+    source_sha256: str,
     extracted: _ExtractedReport,
     destination: str,
-    fallback_start_date: DateType,
-    fallback_day_texts: dict[int, str] | None = None,
     title: str,
     cache_prefix: str,
+    chunk_count: int,
 ) -> Itinerary:
-    report_budget = extracted.total_budget
-    default_hotel_name = next(
-        (day.hotel_name for day in extracted.days if day.hotel_name),
-        _extract_hotel_name(extracted.overview, destination),
-    )
     days: list[DayPlan] = []
-    fallback_day_texts = fallback_day_texts or {}
-    for index, extracted_day in enumerate(sorted(extracted.days, key=lambda day: day.day_index)):
-        current_date = _parse_date(extracted_day.date) or (fallback_start_date + timedelta(days=index))
-        full_day_text = extracted_day.full_day_text.strip() or fallback_day_texts.get(extracted_day.day_index, "")
+    for extracted_day in extracted.days:
         spots = [
             SpotItem(
                 name=spot.name.strip(),
-                start_time=f"{10 + spot_index * 2:02d}:00",
-                end_time=f"{12 + spot_index * 2:02d}:00",
-                description=spot.description.strip() or full_day_text[:280],
-                estimated_cost=None,
-                location=spot.map_query.strip() or f"{destination} {spot.name.strip()}",
-                map_query=spot.map_query.strip() or f"{destination} {spot.name.strip()}",
+                start_time=spot.start_time,
+                end_time=spot.end_time,
+                description=spot.description.strip() or None,
+                estimated_cost=spot.estimated_cost,
+                location=spot.map_query.strip() or None,
+                map_query=spot.map_query.strip() or None,
             )
-            for spot_index, spot in enumerate(extracted_day.spots[:4])
+            for spot in extracted_day.spots
             if spot.name.strip()
         ]
-        if not spots:
-            spots = [
-                SpotItem(
-                    name=destination,
-                    description=full_day_text[:280] or extracted_day.theme,
-                    estimated_cost=None,
-                    location=destination,
-                )
-            ]
         meals = [
             MealItem(
                 name=meal.name.strip(),
                 meal_type=meal.meal_type.strip() or "餐饮",
-                estimated_cost=0.0,
-                notes=meal.notes.strip(),
-                map_query=meal.map_query.strip() or f"{destination} {meal.name.strip()}",
+                estimated_cost=meal.estimated_cost,
+                notes=meal.notes.strip() or None,
+                map_query=meal.map_query.strip() or None,
                 data_source="destination_intelligence_report",
             )
-            for meal in extracted_day.meals[:3]
+            for meal in extracted_day.meals
             if meal.name.strip()
         ]
-        hotel_name = extracted_day.hotel_name.strip() or default_hotel_name
+        hotel_name = extracted_day.hotel_name.strip()
+        hotel = (
+            HotelItem(
+                name=hotel_name,
+                level=extracted_day.hotel_level.strip() or None,
+                estimated_cost=extracted_day.hotel_cost,
+                location=extracted_day.hotel_query.strip() or None,
+                map_query=extracted_day.hotel_query.strip() or None,
+                data_source="destination_intelligence_report",
+            )
+            if hotel_name
+            else None
+        )
+        transport = [
+            TransportItem(
+                mode=item.mode,
+                from_place=item.from_place,
+                to_place=item.to_place,
+                estimated_cost=item.estimated_cost,
+                duration=item.duration,
+            )
+            for item in extracted_day.transport
+        ]
+        if not transport and extracted_day.transport_note.strip():
+            transport.append(
+                TransportItem(
+                    mode="行程交通",
+                    duration=extracted_day.transport_note.strip(),
+                )
+            )
         days.append(
             DayPlan(
-                day_index=index + 1,
-                date=current_date,
-                theme=extracted_day.theme.strip() or f"{destination} Day {index + 1}",
+                day_index=extracted_day.day_index,
+                date=_parse_date(extracted_day.date),
+                theme=extracted_day.theme.strip() or f"第{extracted_day.day_index}天",
                 spots=spots,
                 meals=meals,
-                hotel=HotelItem(
-                    name=hotel_name,
-                    level="报告建议住宿区域",
-                    estimated_cost=0.0,
-                    location=extracted_day.hotel_query.strip() or hotel_name,
-                    map_query=extracted_day.hotel_query.strip() or f"{destination} {hotel_name}",
-                    data_source="destination_intelligence_report",
-                ),
-                transport=[
-                    TransportItem(
-                        mode="市内交通",
-                        from_place=hotel_name,
-                        to_place=spots[-1].name,
-                        estimated_cost=0.0,
-                        duration=extracted_day.transport_note.strip()
-                        or "以 Report 的时间—地点链为准",
-                    )
+                hotel=hotel,
+                transport=transport,
+                notes=[
+                    extracted_day.full_day_text.strip()
+                    or extracted_day.theme.strip()
+                    or (extracted_day.date or "")
                 ],
-                notes=[full_day_text or extracted_day.theme],
             )
         )
 
+    overview_facts = [
+        ItineraryOverviewFact(
+            key=fact.key,
+            label=fact.label,
+            value=fact.value,
+            source_chunk_ids=fact.source_chunk_ids,
+        )
+        for fact in extracted.overview_facts
+        if fact.key.strip() and fact.value.strip()
+    ]
     itinerary = Itinerary(
         trip_id=_cache_trip_id(cache_prefix, source_id),
         destination=destination,
         summary=extracted.overview.strip() or title,
         days=days,
-        estimated_budget=report_budget,
-        budget_breakdown=BudgetBreakdown(other=report_budget, total=report_budget) if report_budget else BudgetBreakdown(),
-        tips=extracted.tips
-        or [
-            "按 Report 的待确认清单复核关键预订、交通班次、酒店规则和景区预约。",
-            "每日路线以 Report 的时间—地点链为准；地图点位用于辅助确认空间分布。",
-        ],
+        estimated_budget=extracted.total_budget,
+        budget_breakdown=BudgetBreakdown(total=extracted.total_budget),
+        tips=extracted.tips,
         source_notes=[
-            "结果页由 Destination Intelligence Report 转换生成。",
-            _LLM_CONVERSION_MARKER,
-            f"Structured JSON: {_extracted_report_json_path(cache_prefix, source_id)}",
+            "结果页由 Destination Intelligence Report 的结构化 LLM 转换生成。",
             f"Report/Deep source id: {source_id}",
         ],
+        overview_facts=overview_facts,
+        conversion_meta=ItineraryConversionMeta(
+            kind="report_itinerary" if cache_prefix == "report_itinerary" else "deep_itinerary",
+            version=_CONVERSION_VERSION,
+            source_id=source_id,
+            source_sha256=source_sha256,
+            model=config.LLM_MODEL,
+            chunk_count=chunk_count,
+            completed_chunk_count=chunk_count,
+            quality_passed=True,
+        ),
     )
     itinerary = _maybe_enrich_itinerary_with_map_data(itinerary, city=destination)
-    return attach_itinerary_display(_apply_report_budget(itinerary, report_budget))
+    return attach_itinerary_display(_apply_report_budget(itinerary, extracted.total_budget))
 
 
-def _needs_rebuild_from_cache(itinerary: Itinerary) -> bool:
-    joined_text = "\n".join(
-        [
-            itinerary.summary,
-            *itinerary.tips,
-            *itinerary.source_notes,
-            *(
-                note
-                for day in itinerary.days
-                for note in day.notes
-            ),
-            *(
-                spot.description or ""
-                for day in itinerary.days
-                for spot in day.spots
-            ),
-            *(
-                meal.notes or ""
-                for day in itinerary.days
-                for meal in day.meals
-            ),
-        ]
-    )
-    if "根据深度规划 Report 提取" in joined_text or itinerary.summary.startswith("根据《"):
+def _needs_rebuild_from_cache(
+    itinerary: Itinerary,
+    source_sha256: str | None = None,
+) -> bool:
+    meta = itinerary.conversion_meta
+    if meta is None or meta.version != _CONVERSION_VERSION or not meta.quality_passed:
         return True
-    if _LLM_CONVERSION_MARKER in itinerary.source_notes:
-        try:
-            llm = build_chat_llm()
-        except Exception:
-            llm = None
-        return llm is None
-    if _FALLBACK_CONVERSION_MARKER in itinerary.source_notes:
-        try:
-            llm = build_chat_llm()
-        except Exception:
-            llm = None
-        if llm is None:
-            return False
-    return True
+    if meta.completed_chunk_count != meta.chunk_count:
+        return True
+    return source_sha256 is not None and meta.source_sha256 != source_sha256
 
 
 def _document_to_itinerary(
@@ -848,17 +976,8 @@ def _document_to_itinerary(
     cache_prefix: str,
     force_rebuild: bool = False,
 ) -> Itinerary:
-    if start_date is None:
-        dates = [_parse_date(value) for value in _DATE_PATTERN.findall(document.markdown)]
-        start_date = next((value for value in dates if value is not None), None)
-    if start_date is None:
-        start_date = DateType.today()
-
-    drafts_for_text = _split_day_sections(document.markdown, destination)
-    fallback_day_texts = {
-        draft.day_index: _extract_day_narrative(draft.body)
-        for draft in drafts_for_text
-    }
+    fingerprint = _source_sha256(document.markdown)
+    sections = _build_llm_extraction_sections(document.markdown, destination)
     extracted = _extract_report_with_llm(
         markdown=document.markdown,
         destination=destination,
@@ -866,138 +985,23 @@ def _document_to_itinerary(
         source_id=source_id,
         cache_prefix=cache_prefix,
         force_rebuild=force_rebuild,
+        start_date=start_date,
+        end_date=end_date,
     )
-    if extracted is not None:
-        try:
-            _save_extracted_report_json(
-                cache_prefix=cache_prefix,
-                source_id=source_id,
-                extracted=extracted,
-                section_count=len(_build_llm_extraction_sections(document.markdown, destination)),
-            )
-        except OSError:
-            pass
-        return _itinerary_from_extracted_report(
-            source_id=source_id,
-            extracted=extracted,
-            destination=destination,
-            fallback_start_date=start_date,
-            fallback_day_texts=fallback_day_texts,
-            title=title,
-            cache_prefix=cache_prefix,
-        )
-
-    drafts = drafts_for_text
-    overview = _extract_overview(document.markdown, title)
-    report_budget = _extract_total_budget(overview + "\n" + document.markdown[:3000])
-
-    if end_date is not None:
-        day_count = max((end_date - start_date).days + 1, 1)
-    else:
-        day_count = max(len(drafts), 1)
-    if len(drafts) < day_count:
-        drafts.extend(
-            _ReportDayDraft(
-                day_index=index + 1,
-                date=None,
-                theme=f"{destination}深度攻略 Day {index + 1}",
-                body=document.markdown,
-                spot_names=(),
-                meal_names=(),
-                hotel_name=None,
-            )
-            for index in range(len(drafts), day_count)
-        )
-    drafts = drafts[:day_count]
-
-    default_hotel_name = next((draft.hotel_name for draft in drafts if draft.hotel_name), None)
-    report_hotel_name = default_hotel_name or _extract_hotel_name(document.markdown, destination)
-    days: list[DayPlan] = []
-    for index, draft in enumerate(drafts):
-        current_date = draft.date or (start_date + timedelta(days=index))
-        spot_names = draft.spot_names or (destination,)
-        meal_names = draft.meal_names
-        narrative = _extract_day_narrative(draft.body)
-        spots = [
-            SpotItem(
-                name=name,
-                start_time=f"{10 + spot_index * 2:02d}:00",
-                end_time=f"{12 + spot_index * 2:02d}:00",
-                description=narrative[:280] if narrative else draft.theme,
-                estimated_cost=None,
-                location=destination,
-                map_query=f"{destination} {name}",
-                data_source="destination_intelligence_report",
-            )
-            for spot_index, name in enumerate(spot_names[:3])
-        ]
-        meals = [
-            MealItem(
-                name=name,
-                meal_type="午餐" if meal_index == 0 else "晚餐",
-                estimated_cost=0.0,
-                notes=_extract_day_narrative(_extract_section_text(draft.body, ("餐", "美食", "商圈")), 320),
-                map_query=f"{destination} {name}",
-                data_source="destination_intelligence_report",
-            )
-            for meal_index, name in enumerate(meal_names[:2])
-        ]
-        hotel_name = draft.hotel_name or report_hotel_name
-        days.append(
-            DayPlan(
-                day_index=index + 1,
-                date=current_date,
-                theme=draft.theme,
-                spots=spots,
-                meals=meals,
-                hotel=HotelItem(
-                    name=hotel_name,
-                    level="报告建议住宿区域",
-                    estimated_cost=0.0,
-                    location="前门/崇文门/东单/王府井" if destination == "北京" else f"{destination}核心区",
-                    map_query=f"{destination} {hotel_name}",
-                    data_source="destination_intelligence_report",
-                ),
-                transport=[
-                    TransportItem(
-                        mode="市内交通",
-                        from_place=hotel_name,
-                        to_place=spots[-1].name if spots else destination,
-                        estimated_cost=0.0,
-                        duration="地铁为主，打车补位；以报告当日时间—地点链为准",
-                    )
-                ],
-                notes=[
-                    narrative or draft.theme,
-                ],
-            )
-        )
-
-    source_notes = [
-        "结果页由 Destination Intelligence Report 转换生成。",
-        _FALLBACK_CONVERSION_MARKER,
-        f"Report/Deep source id: {source_id}",
-    ]
-    source_notes.extend(
-        f"{source.section_title or '研究来源'}：{source.title or source.query}"
-        for source in document.sources[:3]
-        if source.title or source.query
+    extracted = _validate_extracted_report(
+        extracted,
+        start_date=start_date,
+        end_date=end_date,
     )
-    itinerary = Itinerary(
-        trip_id=_cache_trip_id(cache_prefix, source_id),
+    return _itinerary_from_extracted_report(
+        source_id=source_id,
+        source_sha256=fingerprint,
+        extracted=extracted,
         destination=destination,
-        summary=overview,
-        days=days,
-        estimated_budget=report_budget,
-        budget_breakdown=BudgetBreakdown(other=report_budget, total=report_budget) if report_budget else BudgetBreakdown(),
-        tips=[
-            "按 Report 的待确认清单复核往返班次、预算口径、长城选择、天安门参观方式和酒店规则。",
-            "每日路线以 Report 的时间—地点链为准；地图点位用于辅助确认空间分布。",
-        ],
-        source_notes=source_notes,
+        title=title,
+        cache_prefix=cache_prefix,
+        chunk_count=len(sections),
     )
-    itinerary = _maybe_enrich_itinerary_with_map_data(itinerary, city=destination)
-    return attach_itinerary_display(_apply_report_budget(itinerary, report_budget))
 
 
 class ReportItineraryAgent:
@@ -1038,7 +1042,6 @@ def convert_document_to_itinerary(
     cache_prefix: str,
     force_rebuild: bool = False,
 ) -> Itinerary:
-    """Module-level convenience wrapper used by service code and tests."""
     return ReportItineraryAgent().convert_document_to_itinerary(
         source_id=source_id,
         document=document,
@@ -1052,12 +1055,16 @@ def convert_document_to_itinerary(
 
 
 __all__ = [
+    "ReportConversionError",
+    "ReportConversionIncompleteError",
+    "ReportConversionUnavailableError",
     "ReportItineraryAgent",
     "convert_document_to_itinerary",
     "_ExtractedDay",
     "_ExtractedMeal",
     "_ExtractedReport",
     "_ExtractedSpot",
+    "_ReportExtractionSection",
     "_build_llm_extraction_sections",
     "_cache_trip_id",
     "_document_to_itinerary",
@@ -1069,4 +1076,6 @@ __all__ = [
     "_needs_rebuild_from_cache",
     "_parse_date",
     "_save_extracted_report_json",
+    "_source_sha256",
+    "_validate_extracted_report",
 ]

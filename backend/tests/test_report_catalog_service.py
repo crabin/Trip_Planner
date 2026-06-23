@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 import json
 from pathlib import Path
 import sys
@@ -63,6 +63,61 @@ def _write_report(
     else:
         state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     return markdown_path, state_path
+
+
+def _complete_extracted_report(
+    start: date,
+    plans: list[dict[str, str]],
+    *,
+    overview: str = "结构化 Report 概览",
+    total_budget: float = 0.0,
+):
+    days = []
+    for offset, plan in enumerate(plans):
+        current_date = start + timedelta(days=offset)
+        spot_name = plan.get("spot", "")
+        meal_name = plan.get("meal", "")
+        days.append(
+            report_itinerary_service._ExtractedDay(
+                day_index=offset + 1,
+                date=current_date.isoformat(),
+                theme=plan["theme"],
+                full_day_text=plan.get("text", plan["theme"]),
+                spots=(
+                    [
+                        report_itinerary_service._ExtractedSpot(
+                            name=spot_name,
+                            map_query=f"测试城市 {spot_name}",
+                        )
+                    ]
+                    if spot_name
+                    else []
+                ),
+                meals=(
+                    [
+                        report_itinerary_service._ExtractedMeal(
+                            name=meal_name,
+                            meal_type="晚餐",
+                            map_query=f"测试城市 {meal_name}",
+                        )
+                    ]
+                    if meal_name
+                    else []
+                ),
+                hotel_name=plan.get("hotel", ""),
+                hotel_query=plan.get("hotel", ""),
+                source_chunk_ids=[f"test-{offset + 1}"],
+            )
+        )
+    return report_itinerary_service._ExtractedReport(
+        overview=overview,
+        start_date=start.isoformat(),
+        end_date=(start + timedelta(days=len(plans) - 1)).isoformat(),
+        total_days=len(plans),
+        total_budget=total_budget,
+        tips=["复核交通与预约规则。"],
+        days=days,
+    )
 
 
 def test_catalog_loads_valid_sources_and_tolerates_corrupt_state(report_dir) -> None:
@@ -200,13 +255,13 @@ def test_deleting_quick_trip_preserves_matched_report_artifact(report_dir) -> No
     assert report_service.get_report_artifact(artifact.report_id) is not None
 
 
-def test_report_itinerary_endpoint_generates_and_caches_result_page_data(report_dir) -> None:
+def test_report_itinerary_endpoint_generates_and_caches_result_page_data(report_dir, monkeypatch) -> None:
     _write_report(
         report_dir,
-        "2026-7-02至7-06从长沙去厦门_20260622_190804",
+            "2026-7-02至7-03从长沙去厦门_20260622_190804",
         "\n".join(
             [
-                "# 厦门 2026-07-02 至 2026-07-06 深度旅行攻略",
+                    "# 厦门 2026-07-02 至 2026-07-03 深度旅行攻略",
                 "## 第1天 鼓浪屿与中山路",
                 "- 景点：鼓浪屿",
                 "- 餐饮：八市海鲜小吃",
@@ -216,9 +271,22 @@ def test_report_itinerary_endpoint_generates_and_caches_result_page_data(report_
                 "- 晚餐：沙茶面老店",
             ]
         ),
-        {"query": "2026-7-02至7-06，从长沙去厦门，2位成人", "report_title": "厦门深度旅行攻略"},
-    )
+            {"query": "2026-7-02至7-03，从长沙去厦门，2位成人", "report_title": "厦门深度旅行攻略"},
+        )
     artifact = report_service.list_report_artifacts()[0]
+    calls = {"count": 0}
+
+    def fake_extract(**_kwargs):
+        calls["count"] += 1
+        return _complete_extracted_report(
+            date(2026, 7, 2),
+            [
+                {"theme": "鼓浪屿与中山路", "spot": "鼓浪屿", "meal": "八市海鲜小吃", "hotel": "厦门海景舒适酒店"},
+                {"theme": "南普陀与环岛路", "spot": "南普陀寺", "meal": "沙茶面老店"},
+            ],
+        )
+
+    monkeypatch.setattr(report_itinerary_service, "_extract_report_with_llm", fake_extract)
 
     first_response = client.get(f"/trip/reports/{artifact.report_id}/itinerary")
     second_response = client.get(f"/trip/reports/{artifact.report_id}/itinerary")
@@ -231,6 +299,8 @@ def test_report_itinerary_endpoint_generates_and_caches_result_page_data(report_
     assert itinerary["days"][0]["spots"][0]["name"] == "鼓浪屿"
     assert itinerary["days"][0]["meals"][0]["name"] == "八市海鲜小吃"
     assert itinerary["days"][0]["hotel"]["name"] == "厦门海景舒适酒店"
+    assert itinerary["conversion_meta"]["version"] == "report-itinerary-llm-v2"
+    assert calls["count"] == 1
     assert get_itinerary_by_trip_id(itinerary["trip_id"]) is not None
     assert itinerary["trip_id"] not in {
         item.trip_id for item in list_saved_itineraries().items
@@ -239,12 +309,12 @@ def test_report_itinerary_endpoint_generates_and_caches_result_page_data(report_
     delete_trip_by_trip_id(itinerary["trip_id"])
 
 
-def test_report_itinerary_endpoint_reuses_matching_quick_trip(report_dir) -> None:
+def test_report_itinerary_endpoint_does_not_reuse_matching_quick_trip(report_dir, monkeypatch) -> None:
     _write_report(
         report_dir,
-        "2026-7-02至7-06从长沙去汕头_20260622_210806_141870",
-        "# 汕头 2026-07-02 至 2026-07-06 旅行攻略\n\n- 景点：小公园开埠区",
-        {"query": "2026-7-02至7-06，从长沙去汕头，2位成人"},
+            "2026-7-02从长沙去汕头_20260622_210806_141870",
+            "# 汕头 2026-07-02 旅行攻略\n\n- 景点：小公园开埠区",
+            {"query": "2026-7-02，从长沙去汕头，2位成人"},
     )
     artifact = report_service.list_report_artifacts()[0]
     trip_id = f"trip_report_reuse_{uuid.uuid4().hex}"
@@ -259,18 +329,26 @@ def test_report_itinerary_endpoint_reuses_matching_quick_trip(report_dir) -> Non
         budget_breakdown=BudgetBreakdown(),
     )
     save_itinerary(itinerary)
+    monkeypatch.setattr(
+        report_itinerary_service,
+        "_extract_report_with_llm",
+        lambda **_kwargs: _complete_extracted_report(
+            date(2026, 7, 2),
+            [{"theme": "汕头老城", "spot": "小公园开埠区"}],
+        ),
+    )
 
     try:
         response = client.get(f"/trip/reports/{artifact.report_id}/itinerary")
 
         assert response.status_code == 200
-        assert response.json()["trip_id"] == trip_id
-        assert response.json()["summary"] == "已存在的汕头结果页"
+        assert response.json()["trip_id"] != trip_id
+        assert response.json()["days"][0]["spots"][0]["name"] == "小公园开埠区"
     finally:
         delete_trip_by_trip_id(trip_id)
 
 
-def test_report_itinerary_falls_back_when_llm_factory_fails(report_dir, monkeypatch) -> None:
+def test_report_itinerary_returns_503_when_llm_factory_fails(report_dir, monkeypatch) -> None:
     _write_report(
         report_dir,
         "llm_factory_failure_20260622_221046",
@@ -293,13 +371,35 @@ def test_report_itinerary_falls_back_when_llm_factory_fails(report_dir, monkeypa
 
     response = client.get(f"/trip/reports/{artifact.report_id}/itinerary")
 
-    assert response.status_code == 200
-    itinerary = response.json()
-    assert itinerary["destination"] == "大理"
-    assert itinerary["days"][0]["spots"][0]["name"] == "大理古城"
-    assert "report-itinerary-conversion:fallback-v1" in itinerary["source_notes"]
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "report_conversion_unavailable"
+    cache_id = report_itinerary_service._cache_trip_id("report_itinerary", artifact.report_id)
+    assert get_itinerary_by_trip_id(cache_id) is None
 
-    delete_trip_by_trip_id(itinerary["trip_id"])
+
+def test_report_itinerary_returns_422_and_does_not_save_partial_result(report_dir, monkeypatch) -> None:
+    _write_report(
+        report_dir,
+        "strict_partial_20260622_221046",
+        "# 洛阳 2026-06-25 至 2026-06-26 旅行攻略\n\n## 每日行程",
+        {"query": "2026-06-25 至 2026-06-26 去洛阳"},
+    )
+    artifact = report_service.list_report_artifacts()[0]
+    monkeypatch.setattr(
+        report_itinerary_service,
+        "_extract_report_with_llm",
+        lambda **_kwargs: _complete_extracted_report(
+            date(2026, 6, 25),
+            [{"theme": "只有第一天", "spot": "应天门"}],
+        ),
+    )
+
+    response = client.get(f"/trip/reports/{artifact.report_id}/itinerary")
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "report_conversion_incomplete"
+    cache_id = report_itinerary_service._cache_trip_id("report_itinerary", artifact.report_id)
+    assert get_itinerary_by_trip_id(cache_id) is None
 
 
 def test_report_itinerary_continues_when_structured_json_save_fails(
@@ -309,7 +409,7 @@ def test_report_itinerary_continues_when_structured_json_save_fails(
     _write_report(
         report_dir,
         "structured_json_write_failure_20260622_221046",
-        "# 北京 2026-06-29 至 2026-06-30 旅行攻略\n\n## 每日行程\n### 2026-06-29（周一）D1｜首日",
+        "# 北京 2026-06-29 一日旅行攻略\n\n## 每日行程\n### 2026-06-29（周一）D1｜首日",
         {"query": "从长沙去北京", "report_title": "北京深度旅行攻略"},
     )
     artifact = report_service.list_report_artifacts()[0]
@@ -359,9 +459,9 @@ def test_beijing_report_itinerary_uses_overview_days_and_never_reuses_budget_as_
         "下周一到周周六周天回长沙从长沙去北京2位成人想看天安门要去长_20260622_221046_628883",
         "\n".join(
             [
-                "# 北京 2026-06-29 至 2026-07-05（7天6晚）旅行攻略",
+                "# 北京 2026-06-29 至 2026-06-30（2天1晚）旅行攻略",
                 "> 一屏概览：",
-                "> **日期**：2026-06-29（周一）出发，2026-07-05（周日）返长沙，共 **7天6晚**",
+                "> **日期**：2026-06-29（周一）出发，2026-06-30（周二）返长沙，共 **2天1晚**",
                 "> **预算口径**：默认按 **2人总预算约10000元，含往返大交通+住宿+市内交通+门票+餐饮** 做控制",
                 "> **确认方法**：12306、天安门广场预约平台、故宫订票官网",
                 "---",
@@ -388,7 +488,7 @@ def test_beijing_report_itinerary_uses_overview_days_and_never_reuses_budget_as_
             ]
         ),
         {
-            "query": "下周一到周周六，周天回长沙，从长沙去北京，2位成人，预算约10000元",
+            "query": "2026-06-29 至 2026-06-30，从长沙去北京，2位成人，预算约10000元",
             "report_title": "目的地旅行攻略｜长沙去北京",
         },
     )
@@ -399,7 +499,7 @@ def test_beijing_report_itinerary_uses_overview_days_and_never_reuses_budget_as_
         lambda **_kwargs: report_itinerary_service._ExtractedReport(
             overview=(
                 "一屏概览：\n"
-                "日期：2026-06-29（周一）出发，2026-07-05（周日）返长沙，共 7天6晚\n"
+                "日期：2026-06-29（周一）出发，2026-06-30（周二）返长沙，共 2天1晚\n"
                 "预算口径：默认按 2人总预算约10000元，含往返大交通+住宿+市内交通+门票+餐饮 做控制"
             ),
             total_budget=10000,
@@ -476,7 +576,7 @@ def test_beijing_report_itinerary_uses_overview_days_and_never_reuses_budget_as_
     assert "开放" not in [spot["name"] for day in itinerary["days"] for spot in day["spots"]]
     assert "根据深度规划 Report 提取" not in all_text
     assert "可结合地图评分再筛选" not in all_text
-    assert "report-itinerary-conversion:llm-v1" in itinerary["source_notes"]
+    assert itinerary["conversion_meta"]["version"] == "report-itinerary-llm-v2"
 
     delete_trip_by_trip_id(itinerary["trip_id"])
 
@@ -485,7 +585,7 @@ def test_report_itinerary_force_rebuild_skips_cached_conversion(report_dir, monk
     _write_report(
         report_dir,
         "force_refresh_beijing_20260622_221046",
-        "# 北京 2026-06-29 至 2026-07-05 旅行攻略\n\n## 每日行程\n### 2026-06-29（周一）D1｜首日",
+        "# 北京 2026-06-29 一日旅行攻略\n\n## 每日行程\n### 2026-06-29（周一）D1｜首日",
         {"query": "从长沙去北京，预算约10000元", "report_title": "北京深度旅行攻略"},
     )
     artifact = report_service.list_report_artifacts()[0]
@@ -552,38 +652,38 @@ def test_report_itinerary_persists_structured_json_and_reuses_it_after_db_cache_
     artifact = report_service.list_report_artifacts()[0]
     call_count = {"value": 0}
 
-    monkeypatch.setattr(report_itinerary_service, "build_chat_llm", lambda: object())
-
-    def fake_extract_section(*, section, **_kwargs):
-        call_count["value"] += 1
-        if section.section_type == "day":
-            return report_itinerary_service._ExtractedReport(
-                days=[
-                    report_itinerary_service._ExtractedDay(
-                        day_index=1,
-                        date="2026-06-29",
-                        theme="首日王府井",
-                        full_day_text="王府井商圈",
-                        spots=[
-                            report_itinerary_service._ExtractedSpot(
-                                name="王府井",
-                                map_query="北京 王府井",
-                            )
-                        ],
-                    )
-                ]
+    def fake_extract(*, markdown, source_id, cache_prefix, force_rebuild=False, **_kwargs):
+        fingerprint = report_itinerary_service._source_sha256(markdown)
+        if not force_rebuild:
+            cached = report_itinerary_service._load_extracted_report_json(
+                cache_prefix,
+                source_id,
+                source_sha256=fingerprint,
             )
-        return report_itinerary_service._ExtractedReport(
+            if cached is not None:
+                return cached
+        call_count["value"] += 1
+        extracted = _complete_extracted_report(
+            date(2026, 6, 29),
+            [
+                {"theme": "首日王府井", "spot": "王府井"},
+                {"theme": "中轴线", "spot": "故宫博物院"},
+            ],
             overview="一屏概览：\n预算口径：2人总预算约10000元",
             total_budget=10000,
-            tips=["复核交通与酒店规则。"],
         )
+        report_itinerary_service._save_extracted_report_json(
+            cache_prefix=cache_prefix,
+            source_id=source_id,
+            source_sha256=fingerprint,
+            extracted=extracted,
+            section_count=2,
+            completed_section_count=2,
+            model="test-model",
+        )
+        return extracted
 
-    monkeypatch.setattr(
-        report_itinerary_service,
-        "_extract_report_section_with_llm",
-        fake_extract_section,
-    )
+    monkeypatch.setattr(report_itinerary_service, "_extract_report_with_llm", fake_extract)
 
     first_response = client.get(f"/trip/reports/{artifact.report_id}/itinerary")
     assert first_response.status_code == 200
@@ -609,7 +709,7 @@ def test_report_itinerary_persists_structured_json_and_reuses_it_after_db_cache_
     delete_trip_by_trip_id(second_response.json()["trip_id"])
 
 
-def test_completed_deep_plan_can_be_converted_to_result_page_itinerary(report_dir) -> None:
+def test_completed_deep_plan_can_be_converted_to_result_page_itinerary(report_dir, monkeypatch) -> None:
     item = create_deep_plan(
         TripRequest(
             destination="大理",
@@ -620,6 +720,18 @@ def test_completed_deep_plan_can_be_converted_to_result_page_itinerary(report_di
             preferences=["自然风景"],
             dietary_preferences=[],
         )
+    )
+    monkeypatch.setattr(
+        report_itinerary_service,
+        "_extract_report_with_llm",
+        lambda **_kwargs: _complete_extracted_report(
+            date(2026, 4, 10),
+            [
+                {"theme": "大理古城", "spot": "大理古城"},
+                {"theme": "洱海慢游", "spot": "洱海"},
+                {"theme": "返程", "spot": ""},
+            ],
+        ),
     )
     try:
         complete_deep_plan(

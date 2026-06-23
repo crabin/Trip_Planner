@@ -72,6 +72,7 @@ export async function getTripReport(reportId: string): Promise<TripDetailRespons
 export async function getReportItinerary(reportId: string, force = false): Promise<Itinerary> {
   const response = await api.get<Itinerary>(`/trip/reports/${encodeURIComponent(reportId)}/itinerary`, {
     params: force ? { force: true } : undefined,
+    timeout: 600000,
   });
   return response.data;
 }
@@ -79,6 +80,7 @@ export async function getReportItinerary(reportId: string, force = false): Promi
 export async function getDeepPlanItinerary(tripId: string, force = false): Promise<Itinerary> {
   const response = await api.get<Itinerary>(`/trip/${encodeURIComponent(tripId)}/deep-itinerary`, {
     params: force ? { force: true } : undefined,
+    timeout: 600000,
   });
   return response.data;
 }

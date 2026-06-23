@@ -311,15 +311,15 @@ def _refresh_budget_breakdown(itinerary: Itinerary, request_budget: float | None
     _apply_route_based_transport_costs(itinerary)
 
     transport_total = round(
-        sum(item.estimated_cost for day in itinerary.days for item in day.transport),
+        sum((item.estimated_cost or 0.0) for day in itinerary.days for item in day.transport),
         2,
     )
     hotel_total = round(
-        sum(day.hotel.estimated_cost for day in itinerary.days if day.hotel is not None),
+        sum((day.hotel.estimated_cost or 0.0) for day in itinerary.days if day.hotel is not None),
         2,
     )
     meal_total = round(
-        sum(item.estimated_cost for day in itinerary.days for item in day.meals),
+        sum((item.estimated_cost or 0.0) for day in itinerary.days for item in day.meals),
         2,
     )
     ticket_total = round(
