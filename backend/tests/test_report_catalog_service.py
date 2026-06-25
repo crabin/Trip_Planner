@@ -299,7 +299,7 @@ def test_report_itinerary_endpoint_generates_and_caches_result_page_data(report_
     assert itinerary["days"][0]["spots"][0]["name"] == "鼓浪屿"
     assert itinerary["days"][0]["meals"][0]["name"] == "八市海鲜小吃"
     assert itinerary["days"][0]["hotel"]["name"] == "厦门海景舒适酒店"
-    assert itinerary["conversion_meta"]["version"] == "report-itinerary-llm-v2"
+    assert itinerary["conversion_meta"]["version"] == "report-itinerary-llm-v3"
     assert calls["count"] == 1
     assert get_itinerary_by_trip_id(itinerary["trip_id"]) is not None
     assert itinerary["trip_id"] not in {
@@ -576,7 +576,7 @@ def test_beijing_report_itinerary_uses_overview_days_and_never_reuses_budget_as_
     assert "开放" not in [spot["name"] for day in itinerary["days"] for spot in day["spots"]]
     assert "根据深度规划 Report 提取" not in all_text
     assert "可结合地图评分再筛选" not in all_text
-    assert itinerary["conversion_meta"]["version"] == "report-itinerary-llm-v2"
+    assert itinerary["conversion_meta"]["version"] == "report-itinerary-llm-v3"
 
     delete_trip_by_trip_id(itinerary["trip_id"])
 

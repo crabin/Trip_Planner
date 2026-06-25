@@ -44,8 +44,8 @@ from app.services.itinerary_display_service import attach_itinerary_display
 from app.services.trip_service import _maybe_enrich_itinerary_with_map_data
 
 
-_CONVERSION_VERSION = "report-itinerary-llm-v2"
-_EXTRACTED_REPORT_JSON_VERSION = "report-section-extraction-json-v2"
+_CONVERSION_VERSION = "report-itinerary-llm-v3"
+_EXTRACTED_REPORT_JSON_VERSION = "report-section-extraction-json-v3"
 _MAX_BATCH_CHUNKS = 6
 _MAX_BATCH_CHARS = 6000
 _MAX_CONCURRENT_BATCHES = 3

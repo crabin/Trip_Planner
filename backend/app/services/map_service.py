@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from math import asin, cos, radians, sin, sqrt
 from typing import Any
 
 import httpx
@@ -295,6 +296,110 @@ def _rank_recommendation_candidates(places: list[dict[str, Any]]) -> list[dict[s
     return sorted(enriched, key=lambda item: item["recommendation_score"], reverse=True)
 
 
+def _place_matches_city(place: dict[str, Any], city: str | None) -> bool:
+    """Drop obvious cross-city AMap POIs before they can replace visible cards."""
+    if not city:
+        return True
+    expected = city.strip()
+    if not expected:
+        return True
+    cityname = str(place.get("cityname") or "").strip()
+    if not cityname:
+        return True
+    return expected in cityname or cityname in expected
+
+
+def _place_matches_category(place: dict[str, Any], category: str) -> bool:
+    """Validate explicit POI category fields when the provider supplies them."""
+    provider_category = str(place.get("category") or "").lower()
+    poi_type = str(place.get("map_type") or place.get("type") or "")
+    typecode = str(place.get("map_typecode") or place.get("typecode") or "")
+
+    if category == "restaurant":
+        if provider_category and provider_category not in {"restaurant", "meal", "food", "dining"}:
+            return False
+        if poi_type and not any(keyword in poi_type for keyword in ("餐饮", "餐厅", "美食", "小吃", "饮品")):
+            return False
+        if typecode and not typecode.startswith("05"):
+            return False
+    elif category == "hotel":
+        if provider_category and provider_category not in {"hotel", "lodging", "accommodation"}:
+            return False
+        if poi_type and not any(keyword in poi_type for keyword in ("住宿", "宾馆", "酒店", "旅馆", "民宿", "客栈")):
+            return False
+        if typecode and not typecode.startswith("10"):
+            return False
+    return True
+
+
+def _distance_meters(
+    *,
+    longitude_a: float,
+    latitude_a: float,
+    longitude_b: float,
+    latitude_b: float,
+) -> float:
+    """Return approximate great-circle distance between two WGS84 coordinates."""
+    earth_radius_meters = 6_371_000
+    delta_latitude = radians(latitude_b - latitude_a)
+    delta_longitude = radians(longitude_b - longitude_a)
+    lat_a = radians(latitude_a)
+    lat_b = radians(latitude_b)
+    haversine = (
+        sin(delta_latitude / 2) ** 2
+        + cos(lat_a) * cos(lat_b) * sin(delta_longitude / 2) ** 2
+    )
+    return 2 * earth_radius_meters * asin(sqrt(haversine))
+
+
+def _place_within_radius(
+    place: dict[str, Any],
+    *,
+    longitude: float,
+    latitude: float,
+    radius: int,
+) -> bool:
+    reported_distance = place.get("map_distance_meters")
+    if reported_distance is not None:
+        try:
+            return float(reported_distance) <= radius * 1.2
+        except (TypeError, ValueError):
+            return False
+
+    candidate_longitude = place.get("longitude")
+    candidate_latitude = place.get("latitude")
+    if candidate_longitude is None or candidate_latitude is None:
+        return False
+    try:
+        distance = _distance_meters(
+            longitude_a=float(longitude),
+            latitude_a=float(latitude),
+            longitude_b=float(candidate_longitude),
+            latitude_b=float(candidate_latitude),
+        )
+    except (TypeError, ValueError):
+        return False
+    return distance <= radius * 1.2
+
+
+def _filter_recommendation_candidates(
+    places: list[dict[str, Any]],
+    *,
+    city: str | None,
+    category: str,
+    longitude: float,
+    latitude: float,
+    radius: int,
+) -> list[dict[str, Any]]:
+    return [
+        place
+        for place in places
+        if _place_matches_city(place, city)
+        and _place_matches_category(place, category)
+        and _place_within_radius(place, longitude=longitude, latitude=latitude, radius=radius)
+    ]
+
+
 def _copy_place_to_spot(spot: SpotItem, place: dict[str, Any]) -> None:
     spot.address = place.get("address") or spot.address
     spot.image_url = place.get("image_url") or spot.image_url
@@ -404,6 +509,28 @@ def _is_placeholder_meal_name(name: str) -> bool:
         "早餐推荐",
         "美食推荐",
         "简餐",
+    ]
+    return any(keyword in name for keyword in placeholder_keywords)
+
+
+def _is_placeholder_hotel_name(name: str) -> bool:
+    """识别规则生成的泛化住宿名，只允许这些名称被附近推荐替换。"""
+    placeholder_keywords = [
+        "住宿",
+        "酒店推荐",
+        "住宿推荐",
+        "舒适型住宿",
+        "经济型住宿",
+        "高档型住宿",
+        "豪华型住宿",
+        "市区酒店",
+        "第1晚",
+        "第2晚",
+        "第3晚",
+        "第4晚",
+        "第5晚",
+        "第6晚",
+        "第7晚",
     ]
     return any(keyword in name for keyword in placeholder_keywords)
 
@@ -763,8 +890,10 @@ def _enrich_hotel(hotel: HotelItem, city: str | None = None) -> bool:
     return True
 
 
-def _enrich_hotel_near_spot(hotel: HotelItem, spot: SpotItem) -> bool:
+def _enrich_hotel_near_spot(hotel: HotelItem, spot: SpotItem, city: str | None = None) -> bool:
     """基于景点坐标推荐附近住宿。"""
+    if not _is_placeholder_hotel_name(hotel.name):
+        return False
     if spot.latitude is None or spot.longitude is None:
         return False
     places = recommend_nearby_hotels(
@@ -780,6 +909,14 @@ def _enrich_hotel_near_spot(hotel: HotelItem, spot: SpotItem) -> bool:
             page_size=10,
         )
     )
+    places = _filter_recommendation_candidates(
+        places,
+        city=city,
+        category="hotel",
+        longitude=spot.longitude,
+        latitude=spot.latitude,
+        radius=3000,
+    )
     places = _rank_recommendation_candidates(places)
     if not places:
         return False
@@ -788,7 +925,7 @@ def _enrich_hotel_near_spot(hotel: HotelItem, spot: SpotItem) -> bool:
     return True
 
 
-def _enrich_meal_near_spot(meal: MealItem, spot: SpotItem) -> bool:
+def _enrich_meal_near_spot(meal: MealItem, spot: SpotItem, city: str | None = None) -> bool:
     """基于景点坐标推荐附近餐厅。"""
     if not _is_placeholder_meal_name(meal.name):
         return False
@@ -807,6 +944,14 @@ def _enrich_meal_near_spot(meal: MealItem, spot: SpotItem) -> bool:
             page_size=10,
         )
     )
+    places = _filter_recommendation_candidates(
+        places,
+        city=city,
+        category="restaurant",
+        longitude=spot.longitude,
+        latitude=spot.latitude,
+        radius=2000,
+    )
     places = _rank_recommendation_candidates(places)
     if not places:
         return False
@@ -815,7 +960,11 @@ def _enrich_meal_near_spot(meal: MealItem, spot: SpotItem) -> bool:
     return True
 
 
-def _build_hotel_candidates_near_spot(hotel: HotelItem | None, spot: SpotItem) -> list[HotelItem]:
+def _build_hotel_candidates_near_spot(
+    hotel: HotelItem | None,
+    spot: SpotItem,
+    city: str | None = None,
+) -> list[HotelItem]:
     if spot.latitude is None or spot.longitude is None:
         return []
     places = recommend_nearby_hotels(longitude=spot.longitude, latitude=spot.latitude)
@@ -828,6 +977,14 @@ def _build_hotel_candidates_near_spot(hotel: HotelItem | None, spot: SpotItem) -
             page_size=10,
         )
     )
+    places = _filter_recommendation_candidates(
+        places,
+        city=city,
+        category="hotel",
+        longitude=spot.longitude,
+        latitude=spot.latitude,
+        radius=3000,
+    )
     ranked = _rank_recommendation_candidates(places)
     candidates = [_hotel_from_place(place, level=hotel.level if hotel else None) for place in ranked[:5]]
     if candidates:
@@ -837,7 +994,11 @@ def _build_hotel_candidates_near_spot(hotel: HotelItem | None, spot: SpotItem) -
     return candidates
 
 
-def _build_meal_candidates_near_spot(meal: MealItem, spot: SpotItem) -> list[MealItem]:
+def _build_meal_candidates_near_spot(
+    meal: MealItem,
+    spot: SpotItem,
+    city: str | None = None,
+) -> list[MealItem]:
     if not _is_placeholder_meal_name(meal.name):
         return []
     if spot.latitude is None or spot.longitude is None:
@@ -851,6 +1012,14 @@ def _build_meal_candidates_near_spot(meal: MealItem, spot: SpotItem) -> list[Mea
             radius=2000,
             page_size=10,
         )
+    )
+    places = _filter_recommendation_candidates(
+        places,
+        city=city,
+        category="restaurant",
+        longitude=spot.longitude,
+        latitude=spot.latitude,
+        radius=2000,
     )
     ranked = _rank_recommendation_candidates(places)
     candidates = [_meal_from_place(place, meal_type=meal.meal_type) for place in ranked[:5]]
@@ -936,9 +1105,13 @@ def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None
         if day.hotel is not None:
             try:
                 if reference_spot is not None:
-                    hotel_candidates = _build_hotel_candidates_near_spot(day.hotel, reference_spot)
+                    hotel_candidates = _build_hotel_candidates_near_spot(
+                        day.hotel,
+                        reference_spot,
+                        city=city or itinerary.destination,
+                    )
                     day.hotel_candidates = hotel_candidates
-                    if hotel_candidates:
+                    if hotel_candidates and _is_placeholder_hotel_name(day.hotel.name):
                         _copy_place_to_hotel(day.hotel, hotel_candidates[0].model_dump())
                         day.hotel.is_recommended = True
                         enriched_count += 1
@@ -959,13 +1132,17 @@ def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None
                         enriched_count += 1
                         continue
 
-                    meal_candidates = _build_meal_candidates_near_spot(meal, reference_spot)
+                    meal_candidates = _build_meal_candidates_near_spot(
+                        meal,
+                        reference_spot,
+                        city=city or itinerary.destination,
+                    )
                     day.meal_candidates.extend(meal_candidates)
                     if meal_candidates:
                         _copy_place_to_meal(meal, meal_candidates[0].model_dump())
                         meal.is_recommended = True
                         enriched_count += 1
-                    elif _enrich_meal_near_spot(meal, reference_spot):
+                    elif _enrich_meal_near_spot(meal, reference_spot, city=city or itinerary.destination):
                         meal.is_recommended = True
                         enriched_count += 1
                     elif _enrich_meal(meal, city=city or itinerary.destination):

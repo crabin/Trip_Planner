@@ -25,6 +25,13 @@ from app.services.itinerary_display_service import attach_itinerary_display
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 REPORT_DIR = BACKEND_DIR / "destination_intelligence_streamlit_reports"
+ORIGINAL_EXTRACT_REPORT_WITH_LLM = agent._extract_report_with_llm
+
+
+@pytest.fixture(autouse=True)
+def restore_agent_extractor(monkeypatch):
+    """Keep report endpoint compatibility hooks from leaking fake extractors across tests."""
+    monkeypatch.setattr(agent, "_extract_report_with_llm", ORIGINAL_EXTRACT_REPORT_WITH_LLM)
 
 
 class _SequenceRunnable:

@@ -419,3 +419,198 @@ def test_enrich_itinerary_uses_external_recommendation_but_keeps_candidates(
     assert day.meals[0].data_source == "dianping"
     assert len(day.meal_candidates) == 2
     assert day.meal_candidates[1].is_recommended is False
+
+
+def test_enrich_itinerary_rejects_cross_city_and_wrong_category_candidates(
+    monkeypatch,
+) -> None:
+    """测试附近推荐不会用跨城或错误类型 POI 污染结果页主卡片。"""
+    monkeypatch.setattr(
+        map_service,
+        "search_places",
+        lambda keyword, city=None, page_size=1: [
+            {
+                "name": "白马寺",
+                "address": "洛阳市洛龙区",
+                "poi_id": "SPOT_1",
+                "latitude": 34.722,
+                "longitude": 112.605,
+                "cityname": "洛阳市",
+                "map_rating": 4.7,
+                "map_average_cost": 0.0,
+                "map_tags": ["寺庙"],
+                "map_type": "风景名胜;风景名胜;旅游景点",
+                "map_typecode": "110000",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        map_service,
+        "recommend_nearby_hotels",
+        lambda longitude, latitude, radius=3000, page_size=10: [
+            {
+                "name": "广州万富希尔顿酒店",
+                "address": "广州市白云区",
+                "cityname": "广州市",
+                "latitude": 23.184,
+                "longitude": 113.265,
+                "map_rating": 4.8,
+                "map_average_cost": 600.0,
+                "map_distance_meters": 1_500_000.0,
+                "map_type": "住宿服务;宾馆酒店;宾馆酒店",
+                "map_typecode": "100000",
+            },
+            {
+                "name": "洛阳本地酒店",
+                "address": "洛阳市洛龙区",
+                "cityname": "洛阳市",
+                "latitude": 34.723,
+                "longitude": 112.606,
+                "map_rating": 4.5,
+                "map_average_cost": 300.0,
+                "map_distance_meters": 300.0,
+                "map_type": "住宿服务;宾馆酒店;宾馆酒店",
+                "map_typecode": "100000",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        map_service,
+        "recommend_nearby_restaurants",
+        lambda longitude, latitude, radius=2000, page_size=10: [
+            {
+                "name": "白马寺",
+                "address": "洛阳市洛龙区",
+                "cityname": "洛阳市",
+                "latitude": 34.722,
+                "longitude": 112.605,
+                "map_rating": 4.7,
+                "map_average_cost": 0.0,
+                "map_distance_meters": 0.0,
+                "map_type": "风景名胜;风景名胜;旅游景点",
+                "map_typecode": "110000",
+            },
+            {
+                "name": "洛阳本地餐厅",
+                "address": "洛阳市洛龙区",
+                "cityname": "洛阳市",
+                "latitude": 34.724,
+                "longitude": 112.607,
+                "map_rating": 4.4,
+                "map_average_cost": 50.0,
+                "map_distance_meters": 350.0,
+                "map_type": "餐饮服务;中餐厅;中餐厅",
+                "map_typecode": "050100",
+            },
+        ],
+    )
+    monkeypatch.setattr(map_service, "fetch_local_life_candidates", lambda **kwargs: [])
+
+    itinerary = Itinerary(
+        trip_id="trip_test",
+        destination="洛阳",
+        summary="测试行程",
+        days=[
+            DayPlan(
+                day_index=1,
+                spots=[SpotItem(name="白马寺")],
+                meals=[MealItem(name="午餐推荐", meal_type="午餐")],
+                hotel=HotelItem(name="市区酒店", level="舒适型"),
+            )
+        ],
+        budget_breakdown=BudgetBreakdown(),
+    )
+
+    enriched = map_service.enrich_itinerary_with_map_data(itinerary, city="洛阳")
+    day = enriched.days[0]
+
+    assert day.hotel is not None
+    assert day.hotel.name == "洛阳本地酒店"
+    assert all(candidate.name != "广州万富希尔顿酒店" for candidate in day.hotel_candidates)
+    assert day.meals[0].name == "洛阳本地餐厅"
+    assert all(candidate.name != "白马寺" for candidate in day.meal_candidates)
+
+
+def test_enrich_itinerary_keeps_explicit_report_names_as_primary_cards(
+    monkeypatch,
+) -> None:
+    """测试 Report 明确给出的餐厅和酒店名称不会被附近推荐覆盖。"""
+    monkeypatch.setattr(
+        map_service,
+        "search_places",
+        lambda keyword, city=None, page_size=1: [
+            {
+                "name": keyword,
+                "address": "洛阳市老城区",
+                "poi_id": f"POI_{keyword}",
+                "latitude": 34.683,
+                "longitude": 112.477,
+                "cityname": "洛阳市",
+                "map_rating": 4.6,
+                "map_average_cost": 80.0,
+                "map_type": "餐饮服务;中餐厅;中餐厅" if "餐厅" in keyword else "住宿服务;宾馆酒店;宾馆酒店",
+                "map_typecode": "050100" if "餐厅" in keyword else "100000",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        map_service,
+        "recommend_nearby_hotels",
+        lambda longitude, latitude, radius=3000, page_size=10: [
+            {
+                "name": "附近推荐酒店",
+                "address": "洛阳市老城区",
+                "cityname": "洛阳市",
+                "latitude": 34.684,
+                "longitude": 112.478,
+                "map_rating": 4.9,
+                "map_average_cost": 500.0,
+                "map_distance_meters": 200.0,
+                "map_type": "住宿服务;宾馆酒店;宾馆酒店",
+                "map_typecode": "100000",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        map_service,
+        "recommend_nearby_restaurants",
+        lambda longitude, latitude, radius=2000, page_size=10: [
+            {
+                "name": "附近推荐餐厅",
+                "address": "洛阳市老城区",
+                "cityname": "洛阳市",
+                "latitude": 34.684,
+                "longitude": 112.478,
+                "map_rating": 4.9,
+                "map_average_cost": 90.0,
+                "map_distance_meters": 200.0,
+                "map_type": "餐饮服务;中餐厅;中餐厅",
+                "map_typecode": "050100",
+            }
+        ],
+    )
+    monkeypatch.setattr(map_service, "fetch_local_life_candidates", lambda **kwargs: [])
+
+    itinerary = Itinerary(
+        trip_id="trip_test",
+        destination="洛阳",
+        summary="测试行程",
+        days=[
+            DayPlan(
+                day_index=1,
+                spots=[SpotItem(name="应天门")],
+                meals=[MealItem(name="老洛阳餐厅", meal_type="晚餐", map_query="老洛阳餐厅")],
+                hotel=HotelItem(name="拾一庭民宿", level="舒适型", map_query="拾一庭民宿"),
+            )
+        ],
+        budget_breakdown=BudgetBreakdown(),
+    )
+
+    enriched = map_service.enrich_itinerary_with_map_data(itinerary, city="洛阳")
+    day = enriched.days[0]
+
+    assert day.hotel is not None
+    assert day.hotel.name == "拾一庭民宿"
+    assert day.hotel.poi_id == "POI_拾一庭民宿"
+    assert day.meals[0].name == "老洛阳餐厅"
+    assert day.meals[0].poi_id == "POI_老洛阳餐厅"
