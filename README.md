@@ -8,6 +8,12 @@
 
 ## 📝 最近更新
 
+- `2026-06-25`
+  - 深度规划模式：规划页支持「快速规划」与「深度规划」两条链路，深度规划会创建后台任务并生成带研究来源的 Markdown 攻略。
+  - 报告转行程：深度攻略和历史 Markdown Report 可转换为结果页使用的结构化 itinerary，继续复用地图、天气、预算、编辑和导出能力。
+  - 浮动旅行助手：结果页接入 ChatUI 对话框，支持问答、联网检索和基于自然语言的当前行程修改。
+  - 联网搜索配置：深度规划支持 Tavily / SearXNG 优先级选择，失败后自动兜底另一搜索服务。
+  - 工程启动：后端依赖改为 `uv` 工作流，使用 `uv sync` 安装依赖、`uv run uvicorn ...` 启动服务。
 - `2026-06-15`
   - 地图服务：增强高德 POI 数据解析，补充评分、参考消费、标签、电话、距离等字段，并支持基于景点坐标推荐附近餐饮与住宿。
   - 行程生成：从 RAG 攻略片段提取门票参考，生成景点预算时优先使用本地攻略价格，并过滤跨目的地提示污染。
@@ -46,16 +52,20 @@
 ## ✨ 项目亮点
 
 - 🧠 **LLM 行程生成**：基于 LangChain + DashScope 调用 `qwen-max` 生成结构化旅行计划
+- 🔎 **深度规划模式**：通过 Destination Intelligence Agent 联网检索官方旅行、交通、景点、住宿、餐饮与动态公告，经过多段总结和反思生成带来源的 Markdown 攻略
+- 🧩 **报告转结构化行程**：支持把深度规划报告或历史 Markdown Report 转换为结果页 itinerary，继续使用地图、天气、预算、保存和导出链路
+- 💬 **浮动旅行助手**：结果页内置 ChatUI 对话助手，可识别问答、联网搜索和行程修改意图，并把修改结果回写到当前 itinerary
 - 📚 **RAG 攻略增强**：使用本地 Markdown 攻略 + Chroma 向量检索，为生成结果补充目的地上下文
 - 🧭 **RAG 在线优化**：规则级 Query Rewrite（含目的地过滤）+ 多层 Rerank 降权（行程/简介/目的地不匹配），消除跨目的地污染
 - 🗺️ **高德地图接入**：补充景点、餐饮、住宿的地址、经纬度、POI ID、评分、参考消费、标签、电话、距离和图片，并支持附近餐饮住宿推荐、路线估算、虚线箭头路线可视化与 🚩 打卡标记
+- 🍽️ **本地生活推荐扩展**：餐饮与住宿推荐模型预留美团/大众点评等第三方来源字段，可在高德推荐基础上叠加榜单、评价数、来源链接与推荐理由
 - 🌦️ **天气感知提示**：前端展示天气预报，并根据雨天/阴天自动修正旅行提示
 - ⚡ **Redis 缓存层**：覆盖天气、地图与 RAG 检索缓存，减少重复外部调用开销
 - 💰 **预算拆分**：按交通、住宿、餐饮、门票、其他费用拆分，并优先使用本地攻略中的门票参考价格
 - 🪄 **智能编辑**：支持用户用自然语言调整某一天行程
 - 🗂️ **历史管理**：支持保存、查看、打开、删除历史 itinerary
-- 📄 **文档导出**：支持 Markdown 和中文 PDF 导出，导出前自动同步当前页面数据
-- 🖥️ **前端可视化**：提供规划页、结果页和历史页，完成核心业务闭环展示
+- 📄 **文档导出**：支持当前草稿或已保存行程导出 Markdown 与中文 PDF
+- 🖥️ **前端可视化**：提供规划页、结果页、深度规划报告页和历史页，完成核心业务闭环展示
 
 ---
 
@@ -63,22 +73,23 @@
 
 ### 技术栈
 
-- 后端：FastAPI + Pydantic + SQLAlchemy
+- 后端：FastAPI + Pydantic + SQLAlchemy + uv
 - LLM：LangChain + DashScope (`qwen-max`)
 - 向量库：ChromaDB
 - 缓存：Redis
-- 外部服务：HTTPX + 高德地图 Web 服务 + 高德 JavaScript API
-- 前端：Vue 3 + Vite
+- 外部服务：HTTPX + 高德地图 Web 服务 + 高德 JavaScript API + Tavily / SearXNG
+- 前端：Vue 3 + Vite + Ant Design Vue + ChatUI
 - 数据库：SQLite
 
 ### 核心架构分层
 
 | 层级 | 关键文件 | 职责 |
 | :--- | :--- | :--- |
-| 前端 | `frontend/src/views/*.vue` | 规划页、结果页、历史页展示与交互 |
-| 接口层 | `backend/app/api/routes/` | trip、export、weather 路由 |
-| 服务层 | `backend/app/services/` | 行程编排、地图 enrich、天气、缓存、导出、存储 |
-| Agent 层 | `backend/app/agents/` | LLM 行程生成 + RAG Query Rewrite |
+| 前端 | `frontend/src/views/*.vue` | 规划页、结果页、深度规划页、历史页展示与交互 |
+| 组件层 | `frontend/src/components/` | 高德地图展示、浮动聊天助手 |
+| 接口层 | `backend/app/api/routes/` | trip、chatbot、export、weather 路由 |
+| 服务层 | `backend/app/services/` | 行程编排、深度规划任务、报告目录、报告转 itinerary、地图 enrich、天气、缓存、导出、存储 |
+| Agent 层 | `backend/app/agents/` | 快速行程生成、浮动聊天助手、Destination Intelligence 深度攻略、Report 转 itinerary |
 | RAG 层 | `backend/app/rag/` | 向量入库、检索、Rerank |
 | 数据层 | `backend/data/` | 本地 Markdown 攻略文档 |
 
@@ -98,12 +109,15 @@ flowchart TD
 
         subgraph Routes[Routes]
             TripRoute[trip.py]
+            ChatbotRoute[chatbot.py]
             ExportRoute[export.py]
             WeatherRoute[weather.py]
         end
 
         subgraph Services[Services]
             TripService[trip_service.py]
+            DeepService[deep_planning_service.py]
+            ReportService[report_itinerary_service.py]
             StorageService[storage_service.py]
             MapService[map_service.py]
             WeatherService[weather_service.py]
@@ -111,7 +125,10 @@ flowchart TD
         end
 
         subgraph Agent[Agent]
-            PlannerAgent[trip_planner_agent.py]
+            PlannerAgent[trip_planner_agent]
+            ChatbotAgent[chatbot_agent]
+            DestinationAgent[destination_intelligence_agent]
+            ReportAgent[report_itinerary_agent]
             RagTool[rag_tool.py]
         end
 
@@ -133,11 +150,15 @@ flowchart TD
     Client --> FrontApp --> FrontApi --> MainApp
 
     MainApp --> TripRoute
+    MainApp --> ChatbotRoute
     MainApp --> ExportRoute
     MainApp --> WeatherRoute
 
     TripRoute --> Schemas
     TripRoute --> TripService
+    TripRoute --> DeepService
+    TripRoute --> ReportService
+    ChatbotRoute --> ChatbotAgent
     WeatherRoute --> WeatherService
     ExportRoute --> ExportService
 
@@ -147,6 +168,9 @@ flowchart TD
     TripService --> Schemas
 
     PlannerAgent --> RagTool
+    DeepService --> DestinationAgent
+    ReportService --> ReportAgent
+    ChatbotAgent --> TripService
     RagTool --> Retriever --> VectorDB --> ChromaDB
     GuideData --> VectorDB
 
@@ -161,7 +185,9 @@ flowchart TD
     ExportRoute --> FrontApi
 ```
 
-数据流路径：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图服务补充地址、坐标、路线和图片 → 前端展示地图、天气、预算和每日行程 → 用户可保存、编辑、查看历史并导出文档。
+快速规划数据流：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图服务补充地址、坐标、路线和图片 → 前端展示地图、天气、预算和每日行程 → 用户可保存、编辑、查看历史并导出文档。
+
+深度规划数据流：前端提交深度规划任务 → 后台 Destination Intelligence Agent 联网检索并生成 Markdown 攻略 → 历史页展示任务状态与研究来源 → 用户可查看深度报告，也可把报告转换为结构化 itinerary 并进入结果页继续编辑和导出。
 
 ---
 
@@ -173,13 +199,16 @@ TripPlannerDemo/
 │   ├── app/
 │   │   ├── config.py          # 环境变量、数据库 Base、全局配置
 │   │   ├── agents/
-│   │   │   ├── trip_planner_agent.py    # LLM 行程生成与单日编辑逻辑
-│   │   │   └── tools/
-│   │   │       └── rag_tool.py          # Query Rewrite：把用户需求改写成更适合检索的 query
+│   │   │   ├── trip_planner_agent/      # 快速结构化行程生成与单日编辑
+│   │   │   ├── chatbot_agent/           # 浮动聊天助手：问答、搜索、行程修改
+│   │   │   ├── destination_intelligence_agent/ # 深度目的地攻略生成
+│   │   │   ├── report_itinerary_agent/  # Markdown Report 转结构化 itinerary
+│   │   │   └── tools/                   # RAG Query Rewrite 等工具
 │   │   ├── api/
 │   │   │   ├── main.py                  # FastAPI 应用入口
 │   │   │   └── routes/
 │   │   │       ├── trip.py              # 生成、编辑、保存、查询、删除接口
+│   │   │       ├── chatbot.py           # 浮动聊天助手接口
 │   │   │       ├── export.py            # Markdown / PDF 导出接口
 │   │   │       └── weather.py           # 天气预报接口
 │   │   ├── models/
@@ -190,7 +219,11 @@ TripPlannerDemo/
 │   │   │   └── retriever.py             # 检索封装、RAG 缓存与轻量 Rerank
 │   │   └── services/
 │   │       ├── trip_service.py          # 行程主编排逻辑、预算计算、地图 enrich
+│   │       ├── deep_planning_service.py # 深度规划后台任务
+│   │       ├── report_catalog_service.py # 深度报告与历史 Report 目录管理
+│   │       ├── report_itinerary_service.py # Report 转 itinerary 缓存与复用
 │   │       ├── cache_service.py         # Redis 缓存封装与降级逻辑
+│   │       ├── local_life_service.py    # 可选餐饮/住宿本地生活数据源
 │   │       ├── map_service.py           # 高德地图 POI、地理编码、路线、图片补充
 │   │       ├── weather_service.py       # 高德天气服务封装
 │   │       ├── storage_service.py       # SQLite 保存、查询、列表、删除
@@ -200,7 +233,8 @@ TripPlannerDemo/
 │   ├── scripts/               # ingest、地图验证、RAG 调试与评估脚本
 │   ├── tests/                 # pytest 测试
 │   ├── .env.example           # 后端环境变量模板
-│   └── requirements.txt
+│   ├── pyproject.toml         # 后端 Python 依赖声明
+│   └── uv.lock                # uv 锁定文件
 ├── frontend/
 │   ├── src/
 │   │   ├── services/
@@ -210,9 +244,11 @@ TripPlannerDemo/
 │   │   ├── views/
 │   │   │   ├── Home.vue                 # 规划页
 │   │   │   ├── Result.vue               # 结果展示页
+│   │   │   ├── DeepPlanResult.vue       # 深度规划 Markdown 报告与来源页
 │   │   │   └── History.vue              # 历史列表页
 │   │   ├── components/
-│   │   │   └── AmapTripMap.vue          # 地图展示组件
+│   │   │   ├── AmapTripMap.vue          # 地图展示组件
+│   │   │   └── FloatingChatbot.vue      # 浮动旅行助手
 │   │   ├── App.vue                      # 页面切换入口
 │   │   └── main.ts                      # 前端入口
 │   ├── .env.example           # 前端环境变量模板
@@ -230,10 +266,20 @@ TripPlannerDemo/
 
 - `backend/app/services/trip_service.py`
   负责 itinerary 主流程编排，包括天数拆分、预算估算、地图 enrich 以及编辑后的统一刷新。
+- `backend/app/services/deep_planning_service.py`
+  负责创建深度规划后台任务，把规划表单整合成研究 query，并持久化任务进度、最终 Markdown 与来源列表。
+- `backend/app/services/report_itinerary_service.py`
+  负责把 Destination Intelligence Report 转换为结果页可展示的结构化 itinerary，并缓存转换结果。
 - `backend/app/services/cache_service.py`
   负责 Redis 客户端懒加载、JSON 缓存读写与 Redis 不可用时的优雅降级。
-- `backend/app/agents/trip_planner_agent.py`
+- `backend/app/agents/trip_planner_agent/`
   负责调用大模型生成结构化旅行草稿，并处理单日编辑时的 LLM 输出。
+- `backend/app/agents/chatbot_agent/`
+  负责浮动旅行助手的意图识别、补充问答、联网搜索和 itinerary 修改。
+- `backend/app/agents/destination_intelligence_agent/`
+  负责联网检索、分章节总结、反思补查和最终 Markdown 深度攻略生成。
+- `backend/app/agents/report_itinerary_agent/`
+  负责把 Markdown 攻略抽取为结构化结果页数据。
 - `backend/app/agents/tools/rag_tool.py`
   负责 RAG 在线阶段的 Query Rewrite，把目的地、偏好、节奏与备注整理成更适合检索的 query。
 - `backend/app/rag/retriever.py`
@@ -259,16 +305,27 @@ TripPlannerDemo/
 
 ## 🚀 快速启动
 
-以下命令默认从项目根目录 `TripPlannerDemo/` 开始执行。
+以下命令默认从项目根目录 `TripPlannerDemo/` 开始执行。后端依赖使用 `uv` 管理，前端依赖使用 `npm` 管理。
+
+如果本机还没有安装 `uv`：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 ### 1. 启动后端
 
 ```bash
 cd TripPlannerDemo
 cd backend
-pip install -r requirements.txt
 # 手动复制 .env.example 为 .env，并填写你的配置
-uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+cp .env.example .env
+
+# 安装/同步 Python 依赖，自动创建 backend/.venv
+uv sync
+
+# 启动 FastAPI 服务
+uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 启动后访问：
@@ -285,6 +342,7 @@ cd TripPlannerDemo
 cd frontend
 npm install
 # 手动复制 .env.example 为 .env，并填写你的配置
+cp .env.example .env
 npm run dev
 ```
 
@@ -318,6 +376,22 @@ AMAP_BASE_URL=https://restapi.amap.com/v3
 AMAP_DEFAULT_CITY=
 AMAP_TIMEOUT_SECONDS=20
 ENABLE_AMAP_ENRICHMENT=true
+
+REDIS_ENABLED=false
+REDIS_URL=redis://127.0.0.1:6379/0
+
+DESTINATION_INTELLIGENCE_AGENT_API_KEY=your_deep_planning_llm_api_key
+DESTINATION_INTELLIGENCE_AGENT_MODEL_NAME=qwen-max
+DESTINATION_INTELLIGENCE_AGENT_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+TAVILY_API_KEY=your_tavily_api_key
+SEARXNG_BASE_URL=http://your-searxng-host:8888/
+DEEP_PLANNING_SEARCH_ENGINE=tavily
+
+ENABLE_LOCAL_LIFE_ENRICHMENT=false
+MEITUAN_API_BASE_URL=
+MEITUAN_API_KEY=
+DIANPING_API_BASE_URL=
+DIANPING_API_KEY=
 ```
 
 ### 前端 `frontend/.env`
@@ -332,6 +406,9 @@ VITE_AMAP_JS_KEY=your_amap_javascript_api_key
 - 如果浏览器在本机打开，`VITE_API_BASE_URL` 不要写远程服务器内部的 `127.0.0.1`
 - 后端高德 key 使用 Web 服务 key
 - 前端地图 key 使用 JavaScript API key
+- `DESTINATION_INTELLIGENCE_AGENT_*` 和 `TAVILY_API_KEY` 用于深度规划与浮动聊天助手的联网检索能力
+- `SEARXNG_BASE_URL` 可配置私有 SearXNG 实例，深度规划支持 `tavily` / `searxng` 优先级选择
+- Redis 与本地生活推荐都是可选能力，未配置时会自动降级到无缓存或高德基础推荐
 - 修改 `.env` 后需要重启对应服务
 
 ---
@@ -342,7 +419,7 @@ VITE_AMAP_JS_KEY=your_amap_javascript_api_key
 
 ```bash
 cd backend
-python scripts/ingest_data.py
+uv run python scripts/ingest_data.py
 ```
 
 成功后会看到类似结果：
@@ -360,11 +437,19 @@ written_count: 9
 | `GET` | `/` | 服务启动检查 |
 | `GET` | `/health` | 健康检查 |
 | `POST` | `/trip/generate` | 生成行程 |
+| `POST` | `/trip/deep-generate` | 创建深度规划后台任务 |
 | `POST` | `/trip/edit` | 智能编辑行程 |
 | `POST` | `/trip/save` | 保存行程 |
 | `GET` | `/trip` | 历史列表 |
 | `GET` | `/trip/{trip_id}` | 行程详情 |
+| `GET` | `/trip/{trip_id}/deep-itinerary` | 把已完成深度规划转换为结果页 itinerary |
+| `GET` | `/trip/reports/{report_id}` | 查询历史 Markdown Report 详情 |
+| `GET` | `/trip/reports/{report_id}/itinerary` | 把历史 Markdown Report 转换为结果页 itinerary |
+| `GET` | `/trip/reports/{report_id}/markdown` | 查看历史 Markdown Report 原文 |
 | `DELETE` | `/trip/{trip_id}` | 删除行程 |
+| `POST` | `/chatbot/message` | 浮动旅行助手对话 |
+| `POST` | `/export/markdown` | 直接导出当前草稿 Markdown |
+| `POST` | `/export/pdf` | 直接导出当前草稿 PDF |
 | `GET` | `/export/{trip_id}/markdown` | 导出 Markdown |
 | `GET` | `/export/{trip_id}/pdf` | 导出 PDF |
 | `GET` | `/weather/forecast` | 查询天气 |
@@ -377,28 +462,28 @@ written_count: 9
 
 ```bash
 cd backend
-pytest tests/test_api_trip.py -q
+uv run pytest tests/test_api_trip.py -q
 ```
 
-如果服务器测试目录是 `backend/test`：
+运行全部后端测试：
 
 ```bash
-cd backend/test
-pytest test_api_trip.py -q
+cd backend
+uv run pytest -q
 ```
 
 ### 高德服务测试
 
 ```bash
-cd backend/scripts
-python test_map_service.py
+cd backend
+uv run python scripts/test_map_service.py
 ```
 
 ### 真实行程生成测试
 
 ```bash
-cd backend/scripts
-python test_trip_service_real.py
+cd backend
+uv run python scripts/test_trip_service_real.py
 ```
 
 ---
@@ -411,7 +496,7 @@ python test_trip_service_real.py
 Home.vue
   -> POST /trip/generate
   -> trip_service.py
-  -> trip_planner_agent.py
+  -> trip_planner_agent
   -> rag_tool.py / vector_db.py
   -> map_service.py
   -> Itinerary
@@ -427,14 +512,38 @@ Result.vue
   -> 更新目标 DayPlan
 ```
 
+### 深度规划
+
+```text
+Home.vue
+  -> POST /trip/deep-generate
+  -> deep_planning_service.py 后台任务
+  -> destination_intelligence_agent
+  -> Markdown Report + Sources
+  -> History.vue / DeepPlanResult.vue
+  -> GET /trip/{trip_id}/deep-itinerary
+  -> report_itinerary_agent
+  -> Result.vue
+```
+
+### 浮动旅行助手
+
+```text
+FloatingChatbot.vue
+  -> POST /chatbot/message
+  -> chatbot_agent 意图识别
+  -> Ask / Search / Update
+  -> 当前 itinerary 问答、联网搜索或行程回写
+```
+
 ### PDF 导出
 
 ```text
-点击导出 PDF
-  -> 前端先 POST /trip/save
-  -> 再 GET /export/{trip_id}/pdf
+点击导出 PDF / Markdown
+  -> 当前草稿：POST /export/pdf 或 POST /export/markdown
+  -> 已保存行程：GET /export/{trip_id}/pdf 或 GET /export/{trip_id}/markdown
   -> export_service.py
-  -> ReportLab 生成 PDF
+  -> ReportLab 生成 PDF / Markdown 文本
 ```
 
 ---
@@ -459,16 +568,32 @@ Result.vue
 - itinerary 中是否有经纬度字段
 - 后端 `ENABLE_AMAP_ENRICHMENT` 是否为 `true`
 
+### 深度规划一直生成中或失败
+
+优先检查：
+
+- `DESTINATION_INTELLIGENCE_AGENT_API_KEY` 和 `DESTINATION_INTELLIGENCE_AGENT_MODEL_NAME` 是否配置
+- `TAVILY_API_KEY` 或 `SEARXNG_BASE_URL` 是否可用
+- `deep_planning_reflection_rounds` 是否过高导致请求耗时过长
+- 后端日志里是否有 LLM、搜索超时或 Report 转换错误
+
+### 浮动旅行助手没有响应
+
+优先检查：
+
+- 后端 `/chatbot/message` 是否可访问
+- 聊天助手使用的 LLM 环境变量是否和后端主 LLM 配置一致
+- 如果请求是联网搜索，确认 `TAVILY_API_KEY` 是否配置
+
 ### PDF 导出空白页
 
 正常导出时后端应看到：
 
 ```text
-POST /trip/save
-GET /export/{trip_id}/pdf
+POST /export/pdf
 ```
 
-如果只有 `POST /trip/save`，说明前端没有成功跳转到导出地址，需要刷新前端或重启 Vite。
+如果导出的是已保存行程，后端也可能看到 `GET /export/{trip_id}/pdf`。如果请求没有到达后端，优先检查前端是否已重启以及浏览器控制台是否有网络错误。
 
 ### `npm run dev` 找不到 `package.json`
 
@@ -482,10 +607,10 @@ cd frontend
 
 ## ✅ 当前完成度
 
-- ✅ **后端能力**：行程生成、智能编辑、保存查询、历史列表、删除、天气查询、Markdown 导出与 PDF 导出接口
-- ✅ **AI 与数据能力**：LangChain 行程生成链路、5 个目的地攻略 RAG 检索、Chroma 入库检索、高德地图地址/坐标/路线/图片补充
+- ✅ **后端能力**：快速行程生成、深度规划任务、Report 转 itinerary、浮动聊天助手、智能编辑、保存查询、历史列表、删除、天气查询、Markdown 导出与 PDF 导出接口
+- ✅ **AI 与数据能力**：LangChain 行程生成链路、Destination Intelligence 深度攻略、Report 结构化抽取、5 个目的地攻略 RAG 检索、Chroma 入库检索、高德地图地址/坐标/路线/图片补充
 - ✅ **RAG 在线优化**：规则级 Query Rewrite（含目的地过滤）、多层 Rerank 降权、检索调试脚本与 15 条评估样例集
-- ✅ **前端能力**：规划页、结果页、历史列表页，以及地图/天气/预算展示、导出与历史管理主流程
+- ✅ **前端能力**：规划页、结果页、深度规划报告页、历史列表页、浮动聊天助手，以及地图/天气/预算展示、导出与历史管理主流程
 - ✅ **缓存与持久化**：SQLite 持久化存储 + Redis 缓存层（覆盖天气、地图与 RAG 检索）
 - ✅ **验证情况**：核心链路稳定跑通，Redis 缓存 key 可在本地容器中验证写入
 

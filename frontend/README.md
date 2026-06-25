@@ -1,16 +1,19 @@
 # Frontend 开发说明
 
-当前 `frontend/` 是 TripPlannerDemo 的前端项目，使用 `Vue 3 + TypeScript + Vite + Ant Design Vue + Axios`。它已经不再只是骨架页，而是可以和后端完成生成、保存、历史、地图、天气、编辑和导出的完整联调。
+当前 `frontend/` 是 TripPlannerDemo 的前端项目，使用 `Vue 3 + TypeScript + Vite + Ant Design Vue + Axios + ChatUI`。它已经不再只是骨架页，而是可以和后端完成生成、深度规划、保存、历史、地图、天气、聊天助手、编辑和导出的完整联调。
 
 ## 1. 当前能力
 
 - 规划页：填写目的地、日期、人数、预算、偏好和备注，调用 `/trip/generate`
+- 深度规划：调用 `/trip/deep-generate` 创建后台任务，生成带研究来源的 Markdown 攻略
 - 结果页：展示行程概览、预算明细、按天花费、地图、天气、点位图片和每日安排
 - 保存：调用 `/trip/save`
-- 历史列表：调用 `/trip` 和 `/trip/{trip_id}`
+- 历史列表：调用 `/trip` 和 `/trip/{trip_id}`，展示快速规划、深度规划和历史 Report
+- 深度报告页：展示 Destination Intelligence Markdown 攻略和研究来源，并可转换为结果页 itinerary
+- 浮动旅行助手：调用 `/chatbot/message`，支持问答、联网搜索和当前行程修改
 - 删除历史行程：调用 `DELETE /trip/{trip_id}`
 - 智能调整：调用 `/trip/edit`
-- 导出：支持 PDF / Markdown，导出前会先保存当前页面数据
+- 导出：支持当前草稿或已保存行程导出 PDF / Markdown
 - 地图：接入高德 JavaScript API
 - 天气：展示后端 `/weather/forecast` 返回的天气预报
 
@@ -20,12 +23,14 @@
 frontend/
 ├── src/
 │   ├── components/
-│   │   └── AmapTripMap.vue
+│   │   ├── AmapTripMap.vue
+│   │   └── FloatingChatbot.vue
 │   ├── services/
 │   │   └── api.ts
 │   ├── types/
 │   │   └── index.ts
 │   ├── views/
+│   │   ├── DeepPlanResult.vue
 │   │   ├── History.vue
 │   │   ├── Home.vue
 │   │   └── Result.vue
@@ -90,7 +95,8 @@ http://你的服务器地址:5173
 
 ```bash
 cd ~/autodl-tmp/TripPlannerDemo/backend
-uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 浏览器能访问下面地址时，再打开前端：
