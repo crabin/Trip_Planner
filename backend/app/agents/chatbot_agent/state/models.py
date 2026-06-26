@@ -3,7 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ChatIntent = Literal["ask", "update", "search", "research", "clarify", "risk_check"]
+ChatIntent = Literal[
+    "ask",
+    "update",
+    "search",
+    "research",
+    "clarify",
+    "risk_check",
+    "compare",
+    "personalize",
+]
 
 
 @dataclass(frozen=True)

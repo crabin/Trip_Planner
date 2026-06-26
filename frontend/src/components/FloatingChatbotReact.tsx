@@ -2,7 +2,7 @@ import Chat, { Bubble, useMessages, type MessageProps } from "@chatui/core";
 import "@chatui/core/dist/index.css";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { sendChatbotMessage, sendChatbotMessageStream } from "../services/api";
@@ -11,6 +11,7 @@ import type {
   ChatbotMessageResponse,
   ChatbotResearchStep,
   Itinerary,
+  TravelerProfile,
 } from "../types";
 
 export interface FloatingChatbotProps {
@@ -23,35 +24,83 @@ const MIN_CHATBOT_SIZE = { width: 340, height: 420 };
 const PAGE_MARGIN = 16;
 const HOST_OFFSET = { left: 24, bottom: 24 };
 const DEFAULT_CHATBOT_OFFSET = { left: 0, bottom: 0 };
+const TOGGLE_BUTTON_SIZE = 56;
+const TOGGLE_DRAG_THRESHOLD = 4;
+const CHATBOT_PANEL_GAP = 12;
+const TRAVELER_PROFILE_STORAGE_KEY = "trip_planner.traveler_profile";
+const CHATBOT_SUMMARY_STORAGE_KEY = "trip_planner.chatbot_summary";
+const EMPTY_TRAVELER_PROFILE: TravelerProfile = {
+  pace_preference: null,
+  food_preferences: [],
+  avoidances: [],
+  interests: [],
+  budget_sensitivity: null,
+  confirmed_facts: [],
+};
 type ResizeDirection = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
+type Size = { width: number; height: number };
+type Offset = { left: number; bottom: number };
+type PanelLayout = {
+  anchorLeft: number;
+  anchorBottom: number;
+  left: number;
+  bottom: number;
+  width: number;
+  height: number;
+};
 
 function FloatingChatbotReact(props: FloatingChatbotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [customSize, setCustomSize] = useState(DEFAULT_CHATBOT_SIZE);
   const [customOffset, setCustomOffset] = useState(DEFAULT_CHATBOT_OFFSET);
+  const [isDraggingToggle, setIsDraggingToggle] = useState(false);
+  const [viewportSize, setViewportSize] = useState(() => getViewportSize());
   const [history, setHistory] = useState<ChatbotConversationMessage[]>([]);
+  const [travelerProfile, setTravelerProfile] = useState<TravelerProfile>(() => loadTravelerProfile());
+  const [conversationSummary, setConversationSummary] = useState(() => loadConversationSummary());
+  const [isResponding, setIsResponding] = useState(false);
   const { messages, appendMsg, updateMsg } = useMessages([
     {
       type: "text",
       content: {
-        text: "我是你的智旅顾问，可以帮你查实时信息、检查风险，也能直接调整当前行程。",
+        text: "我是你的智旅顾问，会帮你把行程安排得更顺路、更符合预算和节奏。你可以直接说想改哪一天、查哪个景点，或让我帮你权衡两个方案。",
       },
       position: "left",
     },
   ]);
+  const panelLayout = useMemo(
+    () => getConstrainedPanelLayout(customSize, customOffset, viewportSize),
+    [customOffset, customSize, viewportSize],
+  );
+
+  useEffect(() => {
+    const handleResize = () => setViewportSize(getViewportSize());
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const toggleMaximized = useCallback(() => {
+    setIsMaximized((value) => {
+      if (value) {
+        setCustomSize(DEFAULT_CHATBOT_SIZE);
+        setCustomOffset(DEFAULT_CHATBOT_OFFSET);
+      }
+      return !value;
+    });
+  }, []);
 
   const navbar = useMemo(
     () => ({
-      title: "旅行助手",
+      title: "智旅顾问",
       rightSlot: React.createElement(
         "button",
         {
           type: "button",
           className: "floating-chatbot__expand",
-          "aria-label": isMaximized ? "最小化聊天窗口" : "最大化聊天窗口",
-          title: isMaximized ? "最小化窗口" : "最大化窗口",
-          onClick: () => setIsMaximized((value) => !value),
+          "aria-label": isMaximized ? "恢复聊天窗口初始大小" : "最大化聊天窗口",
+          title: isMaximized ? "恢复初始大小" : "最大化窗口",
+          onClick: toggleMaximized,
         },
         React.createElement(
           "span",
@@ -62,7 +111,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         ),
       ),
     }),
-    [isMaximized],
+    [isMaximized, toggleMaximized],
   );
 
   const handleResizeStart = useCallback((event: React.MouseEvent<HTMLElement>, direction: ResizeDirection) => {
@@ -74,8 +123,8 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     const startY = event.clientY;
     const startSize = customSize;
     const startOffset = customOffset;
-    const startActualLeft = HOST_OFFSET.left + startOffset.left;
-    const startActualBottom = HOST_OFFSET.bottom + startOffset.bottom;
+    const startActualLeft = panelLayout.left;
+    const startActualBottom = panelLayout.bottom;
     const startRight = startActualLeft + startSize.width;
     const startTop = window.innerHeight - startActualBottom - startSize.height;
 
@@ -87,9 +136,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
       const hasNorth = direction.includes("n");
       const hasSouth = direction.includes("s");
       let nextWidth = startSize.width;
-      let nextLeft = startOffset.left;
       let nextHeight = startSize.height;
-      let nextBottom = startOffset.bottom;
 
       if (hasWest) {
         const nextActualLeft = clamp(
@@ -98,7 +145,6 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           startRight - MIN_CHATBOT_SIZE.width,
         );
         nextWidth = startRight - nextActualLeft;
-        nextLeft = nextActualLeft - HOST_OFFSET.left;
       } else if (hasEast) {
         const maxWidth = Math.max(
           MIN_CHATBOT_SIZE.width,
@@ -114,7 +160,6 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           window.innerHeight - startTop - MIN_CHATBOT_SIZE.height,
         );
         nextHeight = window.innerHeight - startTop - nextActualBottom;
-        nextBottom = nextActualBottom - HOST_OFFSET.bottom;
       } else if (hasNorth) {
         const maxHeight = Math.max(
           MIN_CHATBOT_SIZE.height,
@@ -124,7 +169,6 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
       }
 
       setCustomSize({ width: nextWidth, height: nextHeight });
-      setCustomOffset({ left: nextLeft, bottom: nextBottom });
     };
 
     const handleMouseUp = () => {
@@ -136,7 +180,56 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     document.body.classList.add("floating-chatbot-resizing");
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  }, [customOffset, customSize]);
+  }, [customSize, panelLayout]);
+
+  const handleTogglePointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (isMaximized || event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startOffset = customOffset;
+    let hasDragged = false;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+      if (!hasDragged && Math.hypot(deltaX, deltaY) < TOGGLE_DRAG_THRESHOLD) {
+        return;
+      }
+      hasDragged = true;
+      setIsDraggingToggle(true);
+
+      const hostOffset = getHostOffset(window.innerWidth);
+      const nextActualLeft = clamp(
+        hostOffset.left + startOffset.left + deltaX,
+        PAGE_MARGIN,
+        window.innerWidth - TOGGLE_BUTTON_SIZE - PAGE_MARGIN,
+      );
+      const nextActualBottom = clamp(
+        hostOffset.bottom + startOffset.bottom - deltaY,
+        PAGE_MARGIN,
+        window.innerHeight - TOGGLE_BUTTON_SIZE - PAGE_MARGIN,
+      );
+      setCustomOffset({
+        left: nextActualLeft - hostOffset.left,
+        bottom: nextActualBottom - hostOffset.bottom,
+      });
+    };
+
+    const handlePointerUp = () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.body.classList.remove("floating-chatbot-dragging");
+      window.setTimeout(() => setIsDraggingToggle(false), 0);
+    };
+
+    document.body.classList.add("floating-chatbot-dragging");
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+  }, [customOffset, isMaximized]);
 
   const renderMessageContent = useCallback((message: MessageProps) => {
     if (message.type !== "text") {
@@ -196,10 +289,11 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
   const handleSend = useCallback(
     async (type: string, content: string) => {
       const text = content.trim();
-      if (type !== "text" || !text) {
+      if (isResponding || type !== "text" || !text) {
         return;
       }
 
+      setIsResponding(true);
       appendMsg({
         type: "text",
         content: { text },
@@ -255,6 +349,8 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           message: text,
           trip_id: props.currentItinerary?.trip_id ?? null,
           current_itinerary: props.currentItinerary,
+          profile: travelerProfile,
+          conversation_summary: conversationSummary,
           history: nextHistory,
         }, (event) => {
           if (event.event === "intent") {
@@ -333,6 +429,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           }
           if (event.event === "final") {
             response = event.data;
+            persistChatbotMemory(event.data, setTravelerProfile, setConversationSummary);
             visibleSteps = event.data.research_steps;
             if (queryCardMessageId && visibleSteps.length) {
               updateAssistantMessage(queryCardMessageId, "实时查询完成", {
@@ -362,8 +459,11 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             message: text,
             trip_id: props.currentItinerary?.trip_id ?? null,
             current_itinerary: props.currentItinerary,
+            profile: travelerProfile,
+            conversation_summary: conversationSummary,
             history: nextHistory,
           });
+          persistChatbotMemory(response, setTravelerProfile, setConversationSummary);
           appendAssistantMessage(response.reply, {
             researchSteps: response.research_steps,
             markdown: true,
@@ -381,10 +481,12 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         }
       } catch (error) {
         console.error(error);
-        appendAssistantMessage("聊天 agent 暂时没有响应。请检查后端服务是否启动，稍后再试。");
+        appendAssistantMessage("智旅顾问暂时没有响应。请检查后端服务是否启动，稍后再试。");
+      } finally {
+        setIsResponding(false);
       }
     },
-    [appendMsg, history, props, updateMsg],
+    [appendMsg, conversationSummary, history, isResponding, props, travelerProfile, updateMsg],
   );
 
   return React.createElement(
@@ -394,12 +496,17 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         "floating-chatbot",
         isOpen ? "floating-chatbot--open" : "",
         isMaximized ? "floating-chatbot--maximized" : "",
+        isResponding ? "floating-chatbot--responding" : "",
       ].filter(Boolean).join(" "),
       style: {
         "--floating-chatbot-width": `${customSize.width}px`,
         "--floating-chatbot-height": `${customSize.height}px`,
         "--floating-chatbot-left": `${customOffset.left}px`,
         "--floating-chatbot-bottom": `${customOffset.bottom}px`,
+        "--floating-chatbot-panel-width": `${panelLayout.width}px`,
+        "--floating-chatbot-panel-height": `${panelLayout.height}px`,
+        "--floating-chatbot-panel-left": `${panelLayout.left - panelLayout.anchorLeft}px`,
+        "--floating-chatbot-panel-bottom": `${panelLayout.bottom - panelLayout.anchorBottom}px`,
       } as React.CSSProperties,
     },
     React.createElement(
@@ -411,7 +518,11 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
       React.createElement(Chat, {
         navbar,
         messages,
-        placeholder: "输入旅行需求...",
+        placeholder: isResponding ? "智旅顾问正在思考..." : "输入想调整、查询或比较的旅行需求...",
+        inputOptions: {
+          disabled: isResponding,
+        },
+        onBeforeSend: () => !isResponding,
         renderMessageContent,
         onSend: handleSend,
       }),
@@ -437,9 +548,14 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         type: "button",
         className: "floating-chatbot__toggle",
         "aria-expanded": isOpen,
-        "aria-label": isOpen ? "收起旅行助手" : "展开旅行助手",
-        title: isOpen ? "收起旅行助手" : "展开旅行助手",
-        onClick: () => setIsOpen((value) => !value),
+        "aria-label": isResponding ? "智旅顾问正在思考" : isOpen ? "收起智旅顾问" : "展开智旅顾问",
+        title: isResponding ? "正在思考" : isOpen ? "收起智旅顾问" : "展开智旅顾问",
+        onClick: () => {
+          if (!isDraggingToggle) {
+            setIsOpen((value) => !value);
+          }
+        },
+        onPointerDown: handleTogglePointerDown,
       },
       React.createElement(
         "span",
@@ -455,6 +571,47 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function getViewportSize(): Size {
+  if (typeof window === "undefined") {
+    return { width: 1280, height: 800 };
+  }
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function getHostOffset(viewportWidth: number): Offset {
+  return viewportWidth <= 640 ? { left: 16, bottom: 16 } : HOST_OFFSET;
+}
+
+function getConstrainedPanelLayout(size: Size, offset: Offset, viewportSize: Size): PanelLayout {
+  const hostOffset = getHostOffset(viewportSize.width);
+  const anchorLeft = hostOffset.left + offset.left;
+  const anchorBottom = hostOffset.bottom + offset.bottom;
+  const maxWidth = Math.max(MIN_CHATBOT_SIZE.width, viewportSize.width - PAGE_MARGIN * 2);
+  const maxHeight = Math.max(MIN_CHATBOT_SIZE.height, viewportSize.height - PAGE_MARGIN * 2);
+  const width = clamp(size.width, MIN_CHATBOT_SIZE.width, maxWidth);
+  const preferredHeight = clamp(size.height, MIN_CHATBOT_SIZE.height, maxHeight);
+  const spaceAboveToggle = viewportSize.height - anchorBottom - TOGGLE_BUTTON_SIZE - CHATBOT_PANEL_GAP - PAGE_MARGIN;
+  const spaceBelowToggle = anchorBottom - CHATBOT_PANEL_GAP - PAGE_MARGIN;
+  const opensAbove = spaceAboveToggle >= preferredHeight || spaceAboveToggle >= spaceBelowToggle;
+  const availableHeight = Math.max(opensAbove ? spaceAboveToggle : spaceBelowToggle, MIN_CHATBOT_SIZE.height);
+  const height = clamp(preferredHeight, MIN_CHATBOT_SIZE.height, Math.min(maxHeight, availableHeight));
+  const preferredLeft = anchorLeft;
+  const preferredBottom = opensAbove
+    ? anchorBottom + TOGGLE_BUTTON_SIZE + CHATBOT_PANEL_GAP
+    : anchorBottom - CHATBOT_PANEL_GAP - height;
+  const left = clamp(preferredLeft, PAGE_MARGIN, viewportSize.width - width - PAGE_MARGIN);
+  const bottom = clamp(preferredBottom, PAGE_MARGIN, viewportSize.height - height - PAGE_MARGIN);
+
+  return {
+    anchorLeft,
+    anchorBottom,
+    left,
+    bottom,
+    width,
+    height,
+  };
 }
 
 function statusLabel(status: ChatbotResearchStep["status"]): string {
@@ -479,6 +636,71 @@ function hasActiveStep(steps: ChatbotResearchStep[]): boolean {
   return steps.some((step) => step.status === "running" || step.status === "pending");
 }
 
+function loadTravelerProfile(): TravelerProfile {
+  if (typeof window === "undefined") {
+    return { ...EMPTY_TRAVELER_PROFILE };
+  }
+  try {
+    const raw = window.localStorage.getItem(TRAVELER_PROFILE_STORAGE_KEY);
+    if (!raw) {
+      return { ...EMPTY_TRAVELER_PROFILE };
+    }
+    return normalizeTravelerProfile(JSON.parse(raw));
+  } catch {
+    return { ...EMPTY_TRAVELER_PROFILE };
+  }
+}
+
+function loadConversationSummary(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return window.localStorage.getItem(CHATBOT_SUMMARY_STORAGE_KEY) ?? "";
+}
+
+function persistChatbotMemory(
+  response: ChatbotMessageResponse,
+  setTravelerProfile: React.Dispatch<React.SetStateAction<TravelerProfile>>,
+  setConversationSummary: React.Dispatch<React.SetStateAction<string>>,
+): void {
+  const nextProfile = normalizeTravelerProfile(response.profile);
+  const nextSummary = response.conversation_summary ?? "";
+  setTravelerProfile(nextProfile);
+  setConversationSummary(nextSummary);
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(TRAVELER_PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
+  window.localStorage.setItem(CHATBOT_SUMMARY_STORAGE_KEY, nextSummary);
+}
+
+function normalizeTravelerProfile(value: unknown): TravelerProfile {
+  const source = isRecord(value) ? value : {};
+  return {
+    pace_preference: normalizeChoice(source.pace_preference, ["轻松", "适中", "紧凑"] as const),
+    food_preferences: normalizeStringList(source.food_preferences),
+    avoidances: normalizeStringList(source.avoidances),
+    interests: normalizeStringList(source.interests),
+    budget_sensitivity: normalizeChoice(source.budget_sensitivity, ["高", "中", "低"] as const),
+    confirmed_facts: normalizeStringList(source.confirmed_facts),
+  };
+}
+
+function normalizeChoice<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+  return allowed.includes(value as T) ? (value as T) : null;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 20);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function upsertResearchStep(
   steps: ChatbotResearchStep[],
   nextStep: ChatbotResearchStep,
@@ -491,14 +713,17 @@ function upsertResearchStep(
 }
 
 function intentLabel(intent: ChatbotMessageResponse["intent"]): string {
-  if (intent === "research" || intent === "risk_check") {
+  if (intent === "research" || intent === "risk_check" || intent === "compare") {
     return "我会先做实时查询，再给你整理结论。";
   }
   if (intent === "search") {
     return "我正在查询相关实时信息。";
   }
-  if (intent === "update") {
+  if (intent === "update" || intent === "personalize") {
     return "我正在按你的要求调整当前行程。";
+  }
+  if (intent === "clarify") {
+    return "我需要先确认关键信息，再给稳妥建议。";
   }
   return "我正在整理回答。";
 }

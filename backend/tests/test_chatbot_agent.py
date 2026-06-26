@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 import time
 
 from fastapi.testclient import TestClient
@@ -48,6 +49,8 @@ class FakeChatLLM:
         self.answer_strategy = answer_strategy
         self.summary = summary
         self.intent_invocations = 0
+        self.intent_payload = {}
+        self.summary_payload = {}
 
     def invoke(self, messages):
         system = messages[0][1]
@@ -60,6 +63,7 @@ class FakeChatLLM:
             )
         if "意图分类器" in system:
             self.intent_invocations += 1
+            self.intent_payload = json.loads(messages[1][1])
             queries = ",".join(f'"{query}"' for query in self.search_queries)
             tasks = ",".join(f'"{task}"' for task in self.generation_tasks)
             edit_scope = f'"{self.edit_scope}"' if self.edit_scope else "null"
@@ -78,6 +82,8 @@ class FakeChatLLM:
                     tasks,
                 )
             )
+        if "智旅顾问" in system or "专业旅行顾问" in system:
+            self.summary_payload = json.loads(messages[1][1])
         if self.summary:
             return FakeResponse(self.summary)
         raise AssertionError(f"Unexpected LLM prompt: {system}")
@@ -159,6 +165,29 @@ def test_chatbot_agent_updates_current_itinerary(monkeypatch) -> None:
     }
     assert response.updated_itinerary is not None
     assert response.updated_itinerary.days[1].theme == "更轻松的第二天"
+
+
+def test_chatbot_agent_clarifies_broad_update_scope(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chatbot_agent,
+        "build_chat_llm",
+        lambda: FakeChatLLM(intent="update"),
+    )
+
+    def fail_edit_trip_itinerary(request):
+        raise AssertionError("broad update should clarify before editing")
+
+    monkeypatch.setattr(chatbot_agent, "edit_trip_itinerary", fail_edit_trip_itinerary)
+
+    response = ChatbotAgent().handle(
+        ChatbotMessageRequest(
+            message="帮我把整体行程优化一下",
+            current_itinerary=build_itinerary(),
+        )
+    )
+
+    assert response.intent == "clarify"
+    assert "只改某一天" in response.reply
 
 
 def test_chatbot_agent_searches_with_shared_agency(monkeypatch) -> None:
@@ -556,6 +585,143 @@ def test_chatbot_agent_researches_open_travel_recommendation_with_llm_plan(monke
     assert "先确认长沙热门景点信息" in response.research_steps[0].summary
     assert any(step.id.startswith("generate_") for step in response.research_steps)
     assert "岳麓山" in response.reply
+
+
+def test_chatbot_agent_remembers_explicit_profile_preferences(monkeypatch) -> None:
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: None)
+
+    response = ChatbotAgent().handle(
+        ChatbotMessageRequest(
+            message="我们不想早起，少走路，喜欢咖啡和Citywalk，预算尽量控制",
+            current_itinerary=build_itinerary(),
+        )
+    )
+
+    assert response.profile.avoidances == ["不早起", "少走路"]
+    assert response.profile.food_preferences == ["咖啡"]
+    assert "Citywalk" in response.profile.interests
+    assert response.profile.budget_sensitivity == "高"
+    assert "用户本轮" in response.conversation_summary
+
+
+def test_intent_classifier_receives_traveler_profile(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(intent="compare")
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    decision = ChatbotAgent().classify_intent(
+        ChatbotMessageRequest(
+            message="帮我比较住春熙路还是宽窄巷子",
+            profile={
+                "pace_preference": "轻松",
+                "avoidances": ["少走路"],
+                "interests": ["Citywalk"],
+            },
+            conversation_summary="用户偏好轻松慢游。",
+            current_itinerary=build_itinerary(),
+        )
+    )
+
+    assert decision.intent == "compare"
+    assert fake_llm.intent_payload["traveler_profile"]["pace_preference"] == "轻松"
+    assert fake_llm.intent_payload["conversation_summary"] == "用户偏好轻松慢游。"
+
+
+def test_chatbot_agent_compares_options_with_research_path(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(
+        intent="compare",
+        search_queries=["成都 春熙路 宽窄巷子 住宿 区域 对比"],
+        generation_tasks=["按交通、预算、夜生活和少走路偏好比较两个住宿区域"],
+        summary="## 对比结论\n如果少走路，春熙路更适合；如果偏人文街区，宽窄巷子更合适。\n\n## 下一步\n先确定你更看重交通还是街区氛围。",
+    )
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            return TavilyResponse(
+                query=query,
+                results=[
+                    SearchResult(
+                        title="成都住宿区域比较",
+                        url="https://example.com/compare",
+                        content="春熙路交通便利，宽窄巷子更偏人文体验。",
+                    )
+                ],
+            )
+
+    response = ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(
+            message="比较住春熙路和宽窄巷子哪个更适合",
+            profile={"avoidances": ["少走路"]},
+            current_itinerary=build_itinerary(),
+        )
+    )
+
+    assert response.intent == "compare"
+    assert response.research_steps[0].id == "understand"
+    assert fake_llm.summary_payload["intent"] == "compare"
+    assert fake_llm.summary_payload["traveler_profile"]["avoidances"] == ["少走路"]
+    assert "春熙路" in response.reply
+
+
+def test_chatbot_agent_personalizes_itinerary_with_profile(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chatbot_agent,
+        "build_chat_llm",
+        lambda: FakeChatLLM(intent="personalize", edit_scope="day_1"),
+    )
+    original = build_itinerary()
+    updated = original.model_copy(deep=True)
+    updated.days[0].theme = "轻松少走路慢游"
+    captured = {}
+
+    def fake_edit_trip_itinerary(request):
+        captured["instruction"] = request.user_instruction
+        captured["edit_scope"] = request.edit_scope
+        return updated
+
+    monkeypatch.setattr(chatbot_agent, "edit_trip_itinerary", fake_edit_trip_itinerary)
+
+    response = ChatbotAgent().handle(
+        ChatbotMessageRequest(
+            message="按我的偏好重排一下",
+            profile={
+                "pace_preference": "轻松",
+                "avoidances": ["少走路", "不早起"],
+                "food_preferences": ["咖啡"],
+            },
+            current_itinerary=original,
+        )
+    )
+
+    assert response.intent == "personalize"
+    assert response.updated_itinerary is not None
+    assert response.updated_itinerary.days[0].theme == "轻松少走路慢游"
+    assert captured["edit_scope"] == "day_1"
+    assert "旅行偏好画像" in captured["instruction"]
+    assert "少走路" in captured["instruction"]
+
+
+def test_chatbot_agent_personalize_requires_profile_before_update(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chatbot_agent,
+        "build_chat_llm",
+        lambda: FakeChatLLM(intent="personalize"),
+    )
+
+    def fail_edit_trip_itinerary(request):
+        raise AssertionError("empty-profile personalization should clarify before editing")
+
+    monkeypatch.setattr(chatbot_agent, "edit_trip_itinerary", fail_edit_trip_itinerary)
+
+    response = ChatbotAgent().handle(
+        ChatbotMessageRequest(
+            message="按我的偏好重排一下",
+            current_itinerary=build_itinerary(),
+        )
+    )
+
+    assert response.intent == "clarify"
+    assert "少走路" in response.reply
 
 
 def test_chatbot_agent_streams_visible_plan_for_clarify(monkeypatch) -> None:

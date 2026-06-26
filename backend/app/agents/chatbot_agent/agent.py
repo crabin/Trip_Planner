@@ -11,6 +11,7 @@ from .graph import build_chatbot_graph, stream_chatbot_graph
 from .llms import build_chat_llm
 from .nodes import AskNode, IntentClassificationNode, ResearchNode, SearchNode, UpdateNode
 from .state import IntentDecision
+from .utils import extract_profile_patch, merge_profile, summarize_conversation
 
 
 class ChatbotAgent:
@@ -40,14 +41,44 @@ class ChatbotAgent:
         self.research_node.search_agency = value
 
     def classify_intent(self, request: ChatbotMessageRequest) -> IntentDecision:
-        return self.intent_node.run(request)
+        return self.intent_node.run(self._with_current_profile(request))
 
     def handle(self, request: ChatbotMessageRequest) -> ChatbotMessageResponse:
-        result = self.graph.invoke({"request": request, "events": []})
-        return result["response"]
+        working_request = self._with_current_profile(request)
+        result = self.graph.invoke({"request": working_request, "events": []})
+        return self._with_memory(working_request, result["response"])
 
     def stream(self, request: ChatbotMessageRequest) -> Iterator[dict[str, Any]]:
-        yield from stream_chatbot_graph(self, request)
+        working_request = self._with_current_profile(request)
+        for event in stream_chatbot_graph(self, working_request):
+            if event.get("event") == "final" and isinstance(event.get("data"), ChatbotMessageResponse):
+                yield {**event, "data": self._with_memory(working_request, event["data"])}
+                continue
+            yield event
+
+    def _with_current_profile(self, request: ChatbotMessageRequest) -> ChatbotMessageRequest:
+        profile = merge_profile(request.profile, extract_profile_patch(request.message))
+        return request.model_copy(update={"profile": profile})
+
+    def _with_memory(
+        self,
+        request: ChatbotMessageRequest,
+        response: ChatbotMessageResponse,
+    ) -> ChatbotMessageResponse:
+        profile = merge_profile(request.profile, extract_profile_patch(request.message))
+        profile = merge_profile(profile, response.profile)
+        summary = summarize_conversation(
+            request.conversation_summary,
+            request.history,
+            request.message,
+            response.reply,
+        )
+        return response.model_copy(
+            update={
+                "profile": profile,
+                "conversation_summary": summary,
+            }
+        )
 
 
 def handle_chatbot_message(request: ChatbotMessageRequest) -> ChatbotMessageResponse:

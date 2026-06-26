@@ -57,11 +57,11 @@ def _classify_intent(agent: Any, state: ChatbotGraphState) -> ChatbotGraphState:
 
 def _route_from_decision(state: ChatbotGraphState) -> RouteName:
     intent = state["decision"].intent
-    if intent == "update":
+    if intent in {"update", "personalize"}:
         return "update"
     if intent == "search":
         return "search"
-    if intent in {"research", "risk_check"}:
+    if intent in {"research", "risk_check", "compare"}:
         return "research"
     return "ask"
 

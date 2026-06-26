@@ -1,5 +1,21 @@
 # Progress
 
+## 2026-06-26
+
+- Resumed the active goal with the required `planning-with-files` skill.
+- Restored existing plan/findings/progress files and confirmed the prior 24 phases are complete.
+- `git status --short` reported no current worktree changes before this Smart Travel Advisor phase.
+- Added Phases 25-30 for planning, auditing, backend implementation, frontend localStorage/profile UI work, regression verification, and final review.
+- Recorded the requested personality/memory/advisory requirements and current chatbot gaps in `findings.md`.
+- Completed Phase 25 planning and Phase 26 audit using CodeGraph and targeted file reads.
+- Confirmed the lowest-blast-radius route: add profile fields to existing schemas, enrich prompts and intent unions, attach profile updates centrally in `ChatbotAgent`, and store/merge profile in the React ChatUI component.
+- Implemented backend Smart Travel Advisor behavior: `TravelerProfile`, `conversation_summary`, `compare/personalize` intents, advisor prompts, profile-aware intent/research/realtime context, conservative profile extraction, and personalized update safeguards.
+- Implemented frontend memory transport: profile/summary localStorage, request payload passthrough, response merge, and “智旅顾问” ChatUI copy.
+- Added regression coverage for chatbot profile extraction, profile prompt passthrough, compare research routing, personalize update routing, empty-profile clarification, and schema support for new profile/intent fields.
+- Verification so far: focused backend tests passed (`41 passed`, then targeted chatbot/search/schema gate `47 passed`), frontend `npm run build` passed, targeted ruff passed, and `git diff --check` passed.
+- Final update-scope review added a code-level guard so broad update requests such as “整体行程优化一下” clarify impact scope before calling the itinerary editor.
+- Final verification passed after the guard: targeted chatbot/search/schema gate (`48 passed`), targeted ruff, frontend `npm run build`, `git diff --check`, and full backend suite (`185 passed in 260.52s`).
+
 ## 2026-06-22
 
 - Started report-aware history follow-up using `planning-with-files`; added Phases 18-21.

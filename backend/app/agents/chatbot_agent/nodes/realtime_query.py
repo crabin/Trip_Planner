@@ -261,6 +261,8 @@ class RealtimeQueryRouter:
                                     if request.current_itinerary is not None
                                     else None
                                 ),
+                                "traveler_profile": request.profile.model_dump(),
+                                "conversation_summary": request.conversation_summary,
                             },
                             ensure_ascii=False,
                         ),

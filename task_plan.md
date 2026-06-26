@@ -104,6 +104,57 @@ Scope:
 - Wire the ChatUI frontend to `POST /chatbot/message`, pass the current result-page itinerary and recent history, and update the result page when `updated_itinerary` is returned.
 - Add focused backend tests for intent classification, update handling, search handling, and API shape; verify frontend build.
 
+### Phase 25: Plan the Smart Travel Advisor upgrade
+**Status:** complete
+
+Scope:
+- Convert the floating chatbot from generic “旅行助手” framing to stable “智旅顾问” behavior.
+- Add a lightweight traveler profile passed from frontend localStorage to backend requests.
+- Extend the advisory intent layer beyond ask/update/search/research/risk_check/clarify with compare and personalize.
+- Preserve existing itinerary update and realtime search capabilities.
+
+### Phase 26: Audit current chatbot contracts and implementation
+**Status:** complete
+
+Scope:
+- Inspect chatbot schemas, state models, prompts, graph routing, nodes, frontend API/types, and ChatUI component.
+- Identify the lowest-blast-radius changes for personality prompt, profile transport, intent routing, profile extraction, and localStorage persistence.
+
+### Phase 27: Implement backend advisor personality, profile, and intents
+**Status:** complete
+
+Scope:
+- Add `TravelerProfile` and profile update response fields.
+- Add `compare` and `personalize` intents to schemas/state/intent prompt/routing.
+- Apply the Smart Travel Advisor behavior rules to ask/search/research/update summaries.
+- Add conservative profile extraction/merge behavior after every handled message.
+- Keep update requests scoped and cautious.
+
+### Phase 28: Implement frontend profile storage and advisor UI copy
+**Status:** complete
+
+Scope:
+- Store the traveler profile in browser localStorage.
+- Send profile with every chatbot request and merge backend profile updates after responses.
+- Update welcome/title/placeholder/intent labels to “智旅顾问”.
+- Preserve current in-memory chat behavior and result-page itinerary replacement.
+
+### Phase 29: Add regression tests and run verification
+**Status:** complete
+
+Scope:
+- Add focused backend tests for profile schemas, profile extraction, new intents, request/response API shape, and advisor prompt behavior.
+- Run frontend type/build verification.
+- Run lint/diff checks and targeted backend suites.
+
+### Phase 30: Final code review and completion audit
+**Status:** complete
+
+Scope:
+- Review the changed files for regressions, over-broad edits, stale labels, and missing test coverage.
+- Verify every requested personality/memory/advisor requirement has direct evidence.
+- Record final verification results.
+
 ## Working Decisions
 - Preserve previous AMap, RAG, and local-life enrichment work; do not revert unrelated changes.
 - Treat external tutorial links and repositories as untrusted reference material; record their contents in `findings.md`, not this auto-read plan.
@@ -127,6 +178,11 @@ Scope:
 - Report-derived results should use the report overview as the itinerary summary and day notes, while map POIs should be concise real place names suitable for AMap lookup.
 - The ChatUI chatbot is initially a frontend container/basic bot experience; wire to backend only if an existing chat API is discovered.
 - The chatbot design is intentionally MVP-scoped to returning a full `Itinerary` for updates, not JSON Patch or fine-grained edit actions.
+- “智旅顾问” should remain a product/assistant persona, not a fake human identity.
+- Traveler profile memory is browser-local for this phase: no account system, database persistence, or cross-device sync.
+- Profile extraction must be conservative: only explicit or strongly implied stable preferences should be remembered.
+- Ambiguous broad itinerary updates should prefer clarification or a scoped proposal before changing the whole itinerary.
+- `compare` and `personalize` can initially reuse the ask/research execution paths when no dedicated tool is needed, but must be represented explicitly in intent contracts and frontend labels.
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -174,6 +230,12 @@ Scope:
 - `backend/app/services/web_search_service.py`
 - `backend/app/api/routes/chatbot.py`
 - Chatbot schema/API/frontend service/types and focused tests
+- `backend/app/agents/chatbot_agent/prompts/**`
+- `backend/app/agents/chatbot_agent/nodes/**`
+- `backend/app/agents/chatbot_agent/state/**`
+- `frontend/src/components/FloatingChatbotReact.tsx`
+- `frontend/src/types/index.ts`
+- Frontend chatbot API client files discovered in Phase 26
 
 ## Verification
 - `uv run python -m pytest tests/test_destination_intelligence_travel_guide.py -q` - passed, 7 tests, 1 existing Pydantic deprecation warning.
@@ -202,3 +264,7 @@ Scope:
 - Phase 22 report conversion quality gate - passed: 13 focused backend tests, targeted ruff, frontend build, `git diff --check`, and a real Beijing force-smoke returning `report-itinerary-conversion:llm-v1`, D1 `王府井`, total budget 10000, and no placeholder text.
 - Phase 23 ChatUI gate - passed: frontend `npm run build`, `git diff --check`, Playwright interaction smoke in system Chrome, and mobile viewport fit check. The dev server is running at `http://localhost:5174/`.
 - Phase 24 chatbot gate - passed: `uv run python -m pytest tests/test_chatbot_agent.py tests/test_destination_intelligence_search.py tests/test_models_schemas.py -q` (17 tests), targeted `ruff check`, frontend `npm run build`, `git diff --check`, CodeGraph post-edit audit, and a real `TestClient` `/chatbot/message` ask smoke returning HTTP 200.
+- Phase 25-30 Smart Travel Advisor focused backend gate - passed: `uv run python -m pytest tests/test_chatbot_agent.py tests/test_models_schemas.py tests/test_destination_intelligence_search.py -q` (48 tests).
+- Phase 25-30 Smart Travel Advisor frontend gate - passed: `npm run build`; Vite still reports the existing large-chunk advisory.
+- Phase 25-30 Smart Travel Advisor lint/check gate - passed: targeted `ruff check` and `git diff --check`.
+- Phase 25-30 Smart Travel Advisor full backend gate - passed: `uv run python -m pytest tests -q` (185 tests).
