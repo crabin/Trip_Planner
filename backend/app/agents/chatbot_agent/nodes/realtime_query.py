@@ -19,7 +19,7 @@ from app.models.schemas import (
 )
 from app.services.weather_service import get_weather_forecast
 
-from ..prompts import REALTIME_QUERY_ROUTER_SYSTEM_PROMPT
+from ..prompts import REALTIME_QUERY_ROUTER_SYSTEM_PROMPT, REALTIME_SEARCH_SUMMARY_SYSTEM_PROMPT
 from ..state import IntentDecision
 from ..utils import MAX_SEARCH_RESULTS, format_search_sources
 
@@ -172,6 +172,8 @@ class RealtimeQueryRouter:
                     query_kind=kind,
                     response=search_response,
                     sources=sources,
+                    llm=self.llm,
+                    search_query=running_step.query or route.search_query,
                 )
             completed_step = running_step.model_copy(
                 update={
@@ -386,6 +388,8 @@ def answer_from_search(
     query_kind: RealtimeQueryKind,
     response: TavilyResponse,
     sources: list[ChatbotSearchSource],
+    llm: Any | None = None,
+    search_query: str = "",
 ) -> str:
     if not response.results:
         return (
@@ -395,6 +399,18 @@ def answer_from_search(
             "- 建议换一个更具体的景点、日期或交通方式再查。\n"
             "- 如涉及购票、开放时间或交通班次，请以官方渠道为准。"
         )
+
+    if llm is not None:
+        llm_answer = summarize_realtime_search_with_llm(
+            llm=llm,
+            question=question,
+            query_kind=query_kind,
+            search_query=search_query or response.query,
+            response=response,
+            sources=sources,
+        )
+        if llm_answer:
+            return llm_answer
 
     first = response.results[0]
     content = first.content.strip() or "搜索结果未提供摘要。"
@@ -436,6 +452,59 @@ def answer_from_search(
             f"- {caution}",
         ]
     )
+
+
+def summarize_realtime_search_with_llm(
+    *,
+    llm: Any,
+    question: str,
+    query_kind: RealtimeQueryKind,
+    search_query: str,
+    response: TavilyResponse,
+    sources: list[ChatbotSearchSource],
+) -> str | None:
+    evidence_sources = []
+    for index, source in enumerate(sources[:6], start=1):
+        content = (source.content or source.raw_content or "").strip()
+        if len(content) > 700:
+            content = f"{content[:700]}..."
+        evidence_sources.append(
+            {
+                "index": index,
+                "title": source.title,
+                "url": source.url,
+                "content": content,
+                "published_date": source.published_date,
+            }
+        )
+
+    payload = {
+        "question": question,
+        "query_kind": query_kind,
+        "search_query": search_query or response.query,
+        "reliability": {
+            "has_reliable_source": has_reliable_source(sources),
+            "reliable_source_rule": "标题含官方/公告/官网/12306/航司/机场/政府/文旅，或 URL 属于 .gov./12306.cn。",
+        },
+        "sources": evidence_sources,
+    }
+    try:
+        llm_response = llm.invoke(
+            [
+                ("system", REALTIME_SEARCH_SUMMARY_SYSTEM_PROMPT),
+                ("human", json.dumps(payload, ensure_ascii=False)),
+            ]
+        )
+    except Exception:
+        return None
+
+    answer = response_content_to_text(llm_response).strip()
+    if not answer:
+        return None
+    blocked_fragments = ("调研完成", "调研过程", "\nOK\n", "已理解需求", "整理回答")
+    if any(fragment in answer for fragment in blocked_fragments):
+        return None
+    return answer
 
 
 def has_reliable_source(sources: list[ChatbotSearchSource]) -> bool:

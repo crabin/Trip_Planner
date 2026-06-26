@@ -127,6 +127,12 @@
       "type": "file"
     },
     {
+      "path": "backend/app/config.py",
+      "accessCount": 8,
+      "lastAccessed": 1782480271124,
+      "type": "file"
+    },
+    {
       "path": "frontend/src/views/Home.vue",
       "accessCount": 7,
       "lastAccessed": 1782033468526,
@@ -136,12 +142,6 @@
       "path": "frontend/src/services/api.ts",
       "accessCount": 7,
       "lastAccessed": 1782033579077,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/config.py",
-      "accessCount": 7,
-      "lastAccessed": 1782034166725,
       "type": "file"
     },
     {
@@ -238,6 +238,12 @@
       "path": "backend/app/api/routes/export.py",
       "accessCount": 3,
       "lastAccessed": 1782033510299,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/llms/chat.py",
+      "accessCount": 3,
+      "lastAccessed": 1782480214934,
       "type": "file"
     },
     {
@@ -376,12 +382,6 @@
       "path": "frontend/vite.config.ts",
       "accessCount": 1,
       "lastAccessed": 1778072682563,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/agents/trip_planner_agent/llms/chat.py",
-      "accessCount": 1,
-      "lastAccessed": 1782032335251,
       "type": "file"
     },
     {

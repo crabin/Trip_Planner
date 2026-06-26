@@ -1,16 +1,75 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
+from app.agents.trip_planner_agent.utils import response_content_to_text
 from app.models.schemas import ChatbotMessageRequest, ChatbotMessageResponse
 
+from ..prompts import ASK_RESPONSE_SYSTEM_PROMPT
 from ..state import IntentDecision
+from ..utils import compact_itinerary
 
 
 class AskNode:
+    def __init__(self, llm: Any | None = None) -> None:
+        self.llm = llm
+
     def run(
         self,
         request: ChatbotMessageRequest,
         decision: IntentDecision,
     ) -> ChatbotMessageResponse:
+        reply = self._generate_reply(request, decision)
+        return ChatbotMessageResponse(
+            intent=decision.intent,
+            reply=reply,
+            reason=decision.reason,
+        )
+
+    def _generate_reply(
+        self,
+        request: ChatbotMessageRequest,
+        decision: IntentDecision,
+    ) -> str:
+        if self.llm is None:
+            return _fallback_reply(request, decision)
+
+        try:
+            response = self.llm.invoke(
+                [
+                    ("system", ASK_RESPONSE_SYSTEM_PROMPT),
+                    (
+                        "human",
+                        json.dumps(
+                            {
+                                "message": request.message,
+                                "intent": decision.intent,
+                                "reason": decision.reason,
+                                "answer_strategy": decision.answer_strategy,
+                                "missing_slots": decision.missing_slots,
+                                "itinerary": compact_itinerary(request.current_itinerary),
+                                "traveler_profile": request.profile.model_dump(),
+                                "conversation_summary": request.conversation_summary,
+                                "history": [item.model_dump() for item in request.history[-6:]],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ),
+                ]
+            )
+            text = response_content_to_text(response).strip()
+            if text:
+                return text
+        except Exception:
+            pass
+        return _fallback_reply(request, decision)
+
+
+def _fallback_reply(
+    request: ChatbotMessageRequest,
+    decision: IntentDecision,
+) -> str:
         itinerary = request.current_itinerary
         if decision.intent == "clarify":
             slots = "、".join(decision.missing_slots) if decision.missing_slots else "目的地、日期、人数、预算或偏好"
@@ -43,11 +102,7 @@ class AskNode:
                 "下一步你可以直接说“把第2天改轻松一点”、"
                 "“比较这两个住宿区域”或“查询某景点最新开放时间”。"
             )
-        return ChatbotMessageResponse(
-            intent=decision.intent,
-            reply=reply,
-            reason=decision.reason,
-        )
+        return reply
 
 
 def _profile_note(request: ChatbotMessageRequest) -> str:

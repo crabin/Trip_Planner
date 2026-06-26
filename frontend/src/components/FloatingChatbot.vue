@@ -360,18 +360,19 @@ body {
 
 .floating-chatbot__message {
   max-width: 100%;
+  min-width: 0;
 }
 
 .floating-chatbot__message--report {
-  width: min(100%, calc(var(--floating-chatbot-width) - 72px));
+  width: min(100%, calc(var(--floating-chatbot-panel-width) - 56px));
 }
 
 .floating-chatbot--maximized .floating-chatbot__message--report {
-  width: min(100%, 820px);
+  width: min(100%, 860px);
 }
 
 .floating-chatbot__markdown {
-  width: min(330px, calc(100vw - 88px));
+  width: min(100%, calc(var(--floating-chatbot-panel-width) - 56px), calc(100vw - 88px));
   box-sizing: border-box;
   border-radius: 8px;
   background: #ffffff;
@@ -520,7 +521,8 @@ body {
 
 .floating-chatbot__research {
   margin-top: 8px;
-  width: min(320px, calc(100vw - 88px));
+  width: min(100%, calc(var(--floating-chatbot-panel-width) - 56px), calc(100vw - 88px));
+  box-sizing: border-box;
   border: 1px solid rgba(88, 103, 216, 0.18);
   border-radius: 8px;
   background: #ffffff;
@@ -544,7 +546,7 @@ body {
 
 .floating-chatbot__research-step {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-columns: minmax(24px, 32px) minmax(0, 1fr);
   gap: 8px;
   padding: 9px 10px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.16);
@@ -574,7 +576,8 @@ body {
 
 .floating-chatbot__research-status {
   display: inline-grid;
-  min-width: 28px;
+  width: 28px;
+  max-width: 100%;
   height: 22px;
   place-items: center;
   border-radius: 6px;
@@ -603,6 +606,7 @@ body {
   margin-top: 3px;
   color: #64748b;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .floating-chatbot__toggle {
