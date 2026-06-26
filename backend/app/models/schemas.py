@@ -468,6 +468,20 @@ class ChatbotSearchSource(BaseModel):
     score: float | None = Field(default=None, description="相关度")
 
 
+class ChatbotResearchStep(BaseModel):
+    """聊天机器人可见调研过程中的一个步骤。"""
+
+    id: str = Field(..., description="步骤稳定标识")
+    title: str = Field(..., description="步骤标题")
+    status: Literal["pending", "running", "completed", "failed"] = Field(
+        default="pending",
+        description="步骤状态",
+    )
+    query: str | None = Field(default=None, description="该步骤使用的搜索词")
+    summary: str = Field(default="", description="步骤结果摘要")
+    sources: list[ChatbotSearchSource] = Field(default_factory=list, description="该步骤来源")
+
+
 class ChatbotMessageRequest(BaseModel):
     """ChatUI 发送给后端 agent 的请求。"""
 
@@ -483,8 +497,15 @@ class ChatbotMessageRequest(BaseModel):
 class ChatbotMessageResponse(BaseModel):
     """聊天机器人 agent 响应。"""
 
-    intent: Literal["ask", "update", "search"] = Field(..., description="识别出的用户意图")
+    intent: Literal["ask", "update", "search", "research", "clarify", "risk_check"] = Field(
+        ...,
+        description="识别出的用户意图",
+    )
     reply: str = Field(..., description="给用户展示的回复")
     reason: str = Field(default="", description="意图判断原因")
     updated_itinerary: Itinerary | None = Field(default=None, description="更新后的结果页 itinerary")
     sources: list[ChatbotSearchSource] = Field(default_factory=list, description="联网查询来源")
+    research_steps: list[ChatbotResearchStep] = Field(
+        default_factory=list,
+        description="可见调研模式的步骤列表",
+    )

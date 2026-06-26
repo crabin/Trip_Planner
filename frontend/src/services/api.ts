@@ -3,6 +3,7 @@ import axios from "axios";
 import type {
   ChatbotMessagePayload,
   ChatbotMessageResponse,
+  ChatbotStreamEvent,
   Itinerary,
   TripDetailResponse,
   TripEditPayload,
@@ -43,6 +44,68 @@ export async function sendChatbotMessage(
 ): Promise<ChatbotMessageResponse> {
   const response = await api.post<ChatbotMessageResponse>("/chatbot/message", payload);
   return response.data;
+}
+
+export async function sendChatbotMessageStream(
+  payload: ChatbotMessagePayload,
+  onEvent: (event: ChatbotStreamEvent) => void
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/chatbot/message/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`聊天流式接口返回 ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+
+    const parts = buffer.split(/\n\n/);
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const event = parseSseEvent(part);
+      if (event) {
+        onEvent(event);
+      }
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  const finalEvent = parseSseEvent(buffer);
+  if (finalEvent) {
+    onEvent(finalEvent);
+  }
+}
+
+function parseSseEvent(chunk: string): ChatbotStreamEvent | null {
+  const eventLine = chunk.split("\n").find((line) => line.startsWith("event:"));
+  const dataLines = chunk
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart());
+
+  if (!eventLine || dataLines.length === 0) {
+    return null;
+  }
+
+  return {
+    event: eventLine.slice(6).trim(),
+    data: JSON.parse(dataLines.join("\n")),
+  } as ChatbotStreamEvent;
 }
 
 export async function saveTrip(itinerary: Itinerary): Promise<TripSaveResponse> {

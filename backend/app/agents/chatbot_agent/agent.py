@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from app.integrations.web_search import FallbackWebSearchAgency
 from app.models.schemas import ChatbotMessageRequest, ChatbotMessageResponse
 from app.services.trip_service import edit_trip_itinerary
 
+from .graph import build_chatbot_graph, stream_chatbot_graph
 from .llms import build_chat_llm
-from .nodes import AskNode, IntentClassificationNode, SearchNode, UpdateNode
+from .nodes import AskNode, IntentClassificationNode, ResearchNode, SearchNode, UpdateNode
 from .state import IntentDecision
 
 
@@ -25,6 +27,8 @@ class ChatbotAgent:
         self.ask_node = AskNode()
         self.update_node = UpdateNode(edit_trip_itinerary)
         self.search_node = SearchNode(llm=self.llm, search_agency=search_agency)
+        self.research_node = ResearchNode(llm=self.llm, search_agency=search_agency)
+        self.graph = build_chatbot_graph(self)
 
     @property
     def search_agency(self) -> FallbackWebSearchAgency | None:
@@ -33,17 +37,17 @@ class ChatbotAgent:
     @search_agency.setter
     def search_agency(self, value: FallbackWebSearchAgency | None) -> None:
         self.search_node.search_agency = value
+        self.research_node.search_agency = value
 
     def classify_intent(self, request: ChatbotMessageRequest) -> IntentDecision:
         return self.intent_node.run(request)
 
     def handle(self, request: ChatbotMessageRequest) -> ChatbotMessageResponse:
-        decision = self.classify_intent(request)
-        if decision.intent == "update":
-            return self.update_node.run(request, decision)
-        if decision.intent == "search":
-            return self.search_node.run(request, decision)
-        return self.ask_node.run(request, decision)
+        result = self.graph.invoke({"request": request, "events": []})
+        return result["response"]
+
+    def stream(self, request: ChatbotMessageRequest) -> Iterator[dict[str, Any]]:
+        yield from stream_chatbot_graph(self, request)
 
 
 def handle_chatbot_message(request: ChatbotMessageRequest) -> ChatbotMessageResponse:

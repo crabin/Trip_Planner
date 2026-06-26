@@ -7,43 +7,6 @@ from app.models.schemas import Itinerary
 
 from ..state import IntentDecision
 
-UPDATE_TERMS = (
-    "改",
-    "调整",
-    "更新",
-    "替换",
-    "删除",
-    "增加",
-    "不要",
-    "换成",
-    "安排",
-    "移到",
-)
-SEARCH_TERMS = (
-    "查",
-    "搜索",
-    "联网",
-    "最新",
-    "现在",
-    "今天",
-    "开放",
-    "营业",
-    "门票",
-    "天气",
-    "交通",
-    "是否",
-)
-RESULT_PAGE_TERMS = (
-    "结果页",
-    "行程",
-    "第",
-    "天",
-    "预算",
-    "酒店",
-    "餐厅",
-    "景点",
-)
-
 
 def compact_itinerary(itinerary: Itinerary | None) -> dict[str, Any]:
     if itinerary is None:
@@ -78,30 +41,15 @@ def guess_day_scope(text: str) -> str | None:
 
 
 def fallback_decision(message: str, itinerary: Itinerary | None) -> IntentDecision:
-    text = message.strip()
-    has_itinerary_context = itinerary is not None
-    contains_update = any(term in text for term in UPDATE_TERMS)
-    contains_search = any(term in text for term in SEARCH_TERMS)
-    contains_result_page = any(term in text for term in RESULT_PAGE_TERMS)
-
-    if has_itinerary_context and contains_update and contains_result_page:
-        return IntentDecision(
-            intent="update",
-            reason="用户在当前行程上下文中提出修改要求。",
-            edit_scope=guess_day_scope(text),
-        )
-
-    if contains_search:
-        destination = itinerary.destination if itinerary else ""
-        query = f"{destination} {text}".strip()
-        return IntentDecision(
-            intent="search",
-            reason="用户要求查询新的或时效性内容。",
-            search_query=query,
-        )
-
+    edit_scope = guess_day_scope(message) if itinerary is not None else None
     return IntentDecision(
-        intent="ask",
-        reason="用户是在询问当前规划或寻求使用帮助。",
+        intent="clarify" if itinerary is None else "ask",
+        reason="LLM 意图分类不可用或返回无效结果，未使用关键词规则做业务路由。",
+        answer_strategy=(
+            "信息不足，先请用户补充目的地、日期、人数、预算和偏好。"
+            if itinerary is None
+            else "围绕当前结果页行程回答，不触发联网查询或行程修改。"
+        ),
+        edit_scope=edit_scope,
+        missing_slots=[] if itinerary is not None else ["destination", "date", "people", "budget", "preferences"],
     )
-

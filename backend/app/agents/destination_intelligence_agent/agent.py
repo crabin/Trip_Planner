@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
+from .graph import run_destination_research_graph
 from .llms import LLMClient
 from .nodes import (
     ReportStructureNode,
@@ -186,28 +187,12 @@ class DestinationIntelligenceAgent:
                 except Exception as callback_error:
                     logger.warning(f"进度回调失败，继续生成攻略: {callback_error}")
 
-            notify(5, "正在准备深度研究")
-
-            # 每次研究都是一份独立攻略，避免复用实例时累积上一次的段落和报告。
-            self.state = State(query=query)
-
-            # Step 1: 生成报告结构
-            self._generate_report_structure(query)
-            notify(12, "攻略结构已生成")
-            
-            # Step 2: 处理每个段落
-            self._web_progress_callback = notify
-            self._process_paragraphs()
-            
-            # Step 3: 生成最终报告
-            notify(90, "正在整合完整攻略")
-            final_report = self._generate_final_report()
-            
-            # Step 4: 保存报告
-            if save_report:
-                self._save_report(final_report)
-
-            notify(100, "深度规划已完成")
+            final_report = run_destination_research_graph(
+                self,
+                query=query,
+                save_report=save_report,
+                notify=notify,
+            )
             
             logger.info(f"\n{'='*60}")
             logger.info("目的地旅行攻略生成完成！")

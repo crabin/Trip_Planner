@@ -337,8 +337,18 @@ export interface ChatbotSearchSource {
   title: string;
   url: string;
   content: string;
+  raw_content?: string | null;
   published_date?: string | null;
   score?: number | null;
+}
+
+export interface ChatbotResearchStep {
+  id: string;
+  title: string;
+  status: "pending" | "running" | "completed" | "failed";
+  query?: string | null;
+  summary: string;
+  sources: ChatbotSearchSource[];
 }
 
 export interface ChatbotMessagePayload {
@@ -349,12 +359,33 @@ export interface ChatbotMessagePayload {
 }
 
 export interface ChatbotMessageResponse {
-  intent: "ask" | "update" | "search";
+  intent: "ask" | "update" | "search" | "research" | "clarify" | "risk_check";
   reply: string;
   reason: string;
   updated_itinerary?: Itinerary | null;
   sources: ChatbotSearchSource[];
+  research_steps: ChatbotResearchStep[];
 }
+
+export type ChatbotStreamEvent =
+  | {
+      event: "intent";
+      data: {
+        intent: ChatbotMessageResponse["intent"];
+        reason: string;
+        answer_strategy?: string | null;
+        search_query?: string | null;
+        search_queries?: string[];
+        generation_tasks?: string[];
+        missing_slots?: string[];
+      };
+    }
+  | { event: "query_plan"; data: ChatbotResearchStep[] }
+  | { event: "query_step"; data: ChatbotResearchStep }
+  | { event: "research_plan"; data: ChatbotResearchStep[] }
+  | { event: "research_step"; data: ChatbotResearchStep }
+  | { event: "final"; data: ChatbotMessageResponse }
+  | { event: "error"; data: { message: string; detail?: string } };
 
 export interface TripDetailResponse {
   trip_id: string;

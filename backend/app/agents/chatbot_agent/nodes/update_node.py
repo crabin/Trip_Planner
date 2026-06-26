@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from app.models.schemas import ChatbotMessageRequest, ChatbotMessageResponse, Itinerary, TripEditRequest
 
+from ..prompts import UPDATE_PRESERVE_CONSTRAINTS
 from ..state import IntentDecision
 
 
@@ -29,10 +30,7 @@ class UpdateNode:
                 current_itinerary=request.current_itinerary,
                 user_instruction=request.message,
                 edit_scope=decision.edit_scope,
-                preserve_constraints=[
-                    "保留目的地、日期、人数和已明确预算，除非用户要求修改。",
-                    "只修改用户提到的范围，避免重写整份行程。",
-                ],
+                preserve_constraints=UPDATE_PRESERVE_CONSTRAINTS,
             )
         )
         scope_text = f"（{decision.edit_scope}）" if decision.edit_scope else ""
@@ -42,4 +40,3 @@ class UpdateNode:
             reason=decision.reason,
             updated_itinerary=updated,
         )
-
