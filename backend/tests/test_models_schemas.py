@@ -13,6 +13,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.models.schemas import (  # noqa: E402
     BudgetBreakdown,
+    ChatbotMessageRequest,
+    ChatbotMessageResponse,
     DayPlan,
     HotelItem,
     Itinerary,
@@ -22,6 +24,7 @@ from app.models.schemas import (  # noqa: E402
     TripEditRequest,
     TripRequest,
     TripSaveRequest,
+    TravelerProfile,
 )
 from app.services.itinerary_display_service import attach_itinerary_display  # noqa: E402
 
@@ -128,6 +131,33 @@ def test_trip_request_accepts_deep_planning_settings() -> None:
 
     assert request.deep_planning_reflection_rounds == 4
     assert request.deep_planning_search_engine == "searxng"
+
+
+def test_chatbot_schemas_accept_traveler_profile_and_new_intents() -> None:
+    profile = TravelerProfile(
+        pace_preference="轻松",
+        food_preferences=["少辣", "咖啡"],
+        avoidances=["不早起"],
+        interests=["Citywalk"],
+        budget_sensitivity="高",
+        confirmed_facts=["我们带老人同行"],
+    )
+    request = ChatbotMessageRequest(
+        message="按我的偏好重排行程",
+        profile=profile,
+        conversation_summary="用户喜欢轻松节奏。",
+    )
+    response = ChatbotMessageResponse(
+        intent="personalize",
+        reply="已按轻松节奏调整。",
+        reason="测试",
+        profile=request.profile,
+        conversation_summary=request.conversation_summary,
+    )
+
+    assert request.profile.avoidances == ["不早起"]
+    assert response.intent == "personalize"
+    assert response.profile.food_preferences == ["少辣", "咖啡"]
 
 
 def test_trip_request_rejects_invalid_deep_planning_settings() -> None:

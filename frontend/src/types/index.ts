@@ -333,6 +333,15 @@ export interface ChatbotConversationMessage {
   content: string;
 }
 
+export interface TravelerProfile {
+  pace_preference?: "轻松" | "适中" | "紧凑" | null;
+  food_preferences: string[];
+  avoidances: string[];
+  interests: string[];
+  budget_sensitivity?: "高" | "中" | "低" | null;
+  confirmed_facts: string[];
+}
+
 export interface ChatbotSearchSource {
   title: string;
   url: string;
@@ -355,16 +364,28 @@ export interface ChatbotMessagePayload {
   message: string;
   trip_id?: string | null;
   current_itinerary?: Itinerary | null;
+  profile: TravelerProfile;
+  conversation_summary: string;
   history: ChatbotConversationMessage[];
 }
 
 export interface ChatbotMessageResponse {
-  intent: "ask" | "update" | "search" | "research" | "clarify" | "risk_check";
+  intent:
+    | "ask"
+    | "update"
+    | "search"
+    | "research"
+    | "clarify"
+    | "risk_check"
+    | "compare"
+    | "personalize";
   reply: string;
   reason: string;
   updated_itinerary?: Itinerary | null;
   sources: ChatbotSearchSource[];
   research_steps: ChatbotResearchStep[];
+  profile: TravelerProfile;
+  conversation_summary: string;
 }
 
 export type ChatbotStreamEvent =

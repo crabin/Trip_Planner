@@ -148,6 +148,8 @@ class ResearchNode:
                                     "intent": decision.intent,
                                     "answer_strategy": decision.answer_strategy,
                                     "generation_tasks": decision.generation_tasks,
+                                    "traveler_profile": request.profile.model_dump(),
+                                    "conversation_summary": request.conversation_summary,
                                     "itinerary_destination": (
                                         request.current_itinerary.destination
                                         if request.current_itinerary is not None

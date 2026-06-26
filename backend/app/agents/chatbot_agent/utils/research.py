@@ -68,6 +68,24 @@ def build_default_research_queries(
 ) -> list[str]:
     destination = request.current_itinerary.destination if request.current_itinerary is not None else ""
     base = decision.search_query or request.message
+    if decision.intent == "compare":
+        defaults = [
+            f"{base} 交通 预算 体验 对比",
+            f"{base} 住宿 区域 交通 便利 比较",
+            f"{base} 景点 行程 取舍 风险",
+            f"{base} 最新 攻略 评价",
+            f"{base} 适合 人群 旅行 节奏",
+        ]
+        return defaults[len(decision.search_queries) :]
+    if decision.intent == "personalize" and request.profile.model_dump(exclude_none=True):
+        defaults = [
+            f"{base} 顺路 少走路 行程 优化",
+            f"{destination or base} 适合 {request.profile.pace_preference or '适中'} 节奏 行程",
+            f"{destination or base} 餐饮 {','.join(request.profile.food_preferences[:3]) or '本地'} 推荐",
+            f"{destination or base} {','.join(request.profile.interests[:3]) or '旅行'} 推荐",
+            f"{destination or base} 行程 风险 交通 预算",
+        ]
+        return defaults[len(decision.search_queries) :]
     defaults = build_research_queries(base, destination)
     return defaults[len(decision.search_queries) :]
 
@@ -84,26 +102,30 @@ def build_planning_steps(
             summary=build_understanding_summary(request, decision),
         )
     ]
-    if decision.intent == "update":
+    if decision.intent in {"update", "personalize"}:
         scope = f"修改范围：{decision.edit_scope}" if decision.edit_scope else "修改范围：由编辑服务结合上下文判断"
         steps.append(
             ChatbotResearchStep(
                 id="execute_update",
-                title="执行行程修改",
+                title="执行个性化调整" if decision.intent == "personalize" else "执行行程修改",
                 status="pending",
                 summary=scope,
             )
         )
-    elif decision.intent in {"ask", "clarify"}:
+    elif decision.intent in {"ask", "clarify", "compare"}:
         steps.append(
             ChatbotResearchStep(
                 id="answer",
-                title="整理回答",
+                title="整理比较建议" if decision.intent == "compare" else "整理回答",
                 status="pending",
                 summary=(
                     "需要先补充：" + "、".join(decision.missing_slots)
                     if decision.missing_slots
-                    else "根据当前上下文直接回答。"
+                    else (
+                        "按体验、交通、预算和风险比较方案。"
+                        if decision.intent == "compare"
+                        else "根据当前上下文直接回答。"
+                    )
                 ),
             )
         )

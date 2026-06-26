@@ -457,6 +457,23 @@ class ChatbotConversationMessage(BaseModel):
     content: str = Field(..., description="消息内容")
 
 
+class TravelerProfile(BaseModel):
+    """轻量旅行偏好画像，当前由前端本地保存并随聊天请求传入。"""
+
+    pace_preference: Literal["轻松", "适中", "紧凑"] | None = Field(
+        default=None,
+        description="用户偏好的旅行节奏",
+    )
+    food_preferences: list[str] = Field(default_factory=list, description="饮食偏好或忌口")
+    avoidances: list[str] = Field(default_factory=list, description="希望避免的安排")
+    interests: list[str] = Field(default_factory=list, description="旅行兴趣点")
+    budget_sensitivity: Literal["高", "中", "低"] | None = Field(
+        default=None,
+        description="用户对预算的敏感程度",
+    )
+    confirmed_facts: list[str] = Field(default_factory=list, description="用户明确确认过的信息")
+
+
 class ChatbotSearchSource(BaseModel):
     """聊天机器人联网查询返回的一条来源。"""
 
@@ -488,6 +505,8 @@ class ChatbotMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, description="用户当前消息")
     trip_id: str | None = Field(default=None, description="当前结果页行程 ID")
     current_itinerary: Itinerary | None = Field(default=None, description="当前结果页 itinerary")
+    profile: TravelerProfile = Field(default_factory=TravelerProfile, description="前端本地保存的旅行偏好画像")
+    conversation_summary: str = Field(default="", description="前端本地保存的短期对话摘要")
     history: list[ChatbotConversationMessage] = Field(
         default_factory=list,
         description="最近对话历史",
@@ -497,7 +516,16 @@ class ChatbotMessageRequest(BaseModel):
 class ChatbotMessageResponse(BaseModel):
     """聊天机器人 agent 响应。"""
 
-    intent: Literal["ask", "update", "search", "research", "clarify", "risk_check"] = Field(
+    intent: Literal[
+        "ask",
+        "update",
+        "search",
+        "research",
+        "clarify",
+        "risk_check",
+        "compare",
+        "personalize",
+    ] = Field(
         ...,
         description="识别出的用户意图",
     )
@@ -509,3 +537,5 @@ class ChatbotMessageResponse(BaseModel):
         default_factory=list,
         description="可见调研模式的步骤列表",
     )
+    profile: TravelerProfile = Field(default_factory=TravelerProfile, description="合并本轮记忆后的旅行偏好画像")
+    conversation_summary: str = Field(default="", description="合并本轮后的短期对话摘要")

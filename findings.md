@@ -1,5 +1,56 @@
 # Findings
 
+## Smart Travel Advisor Upgrade (2026-06-26)
+
+### Requested behavior
+
+- Upgrade the chatbot into “智旅顾问” across three layers: personality, memory, and advisory collaboration.
+- Personality layer:
+  - Welcome text should explain that the advisor helps make itineraries smoother, budget-fit, and pace-fit.
+  - Backend prompt should say the advisor sounds like a professional travel consultant, does not pretend to be human, understands emotion/constraints before suggestions, says “不确定” when uncertain, recommends/uses online search for fresh facts, confirms impact scope before modification, and gives one executable next action.
+- Memory layer:
+  - Add lightweight `TravelerProfile` without an account system.
+  - Profile fields: pace preference, food preferences, avoidances, interests, budget sensitivity, confirmed facts.
+  - Frontend temporarily stores profile in localStorage and sends it to backend.
+  - Each chat round can extract memorable preferences via LLM or rules; backend returns profile updates for frontend persistence.
+- Advisory layer:
+  - Extend intents with `clarify`, `compare`, `risk_check`, `personalize`, while preserving `update` and `search`.
+  - `clarify` asks for missing tradeoff information.
+  - `compare` compares options.
+  - `risk_check` checks weather/closure/transport/budget/pace risks.
+  - `personalize` adapts itinerary to the traveler profile.
+
+### Initial current-state findings
+
+- `frontend/src/components/FloatingChatbotReact.tsx` already has an advisor-ish welcome line, but navbar/title/toggle labels still say “旅行助手”.
+- Frontend currently sends `message`, `trip_id`, `current_itinerary`, and `history`; no profile is sent.
+- Backend `ChatbotMessageRequest` has no profile field.
+- Backend `ChatbotMessageResponse.intent` and state `ChatIntent` already include `clarify` and `risk_check`, but not `compare` or `personalize`.
+- Chatbot graph routes `risk_check` to research, `clarify` to ask, and only has concrete `ask/update/search/research` nodes.
+- Existing prompt files still use “旅行助手” in intent/search/realtime wording.
+- Existing frontend response type mirrors the backend intent union and will need `compare/personalize` plus profile response fields.
+
+### Phase 26 audit details
+
+- `AskNode` is deterministic and only summarizes current itinerary or asks for basic trip inputs; it does not yet tailor wording from a profile.
+- `UpdateNode` already passes `edit_scope` and `UPDATE_PRESERVE_CONSTRAINTS` into `edit_trip_itinerary`; its preserve constraints align with “avoid broad rewrite” but the reply should become more advisor-like.
+- Intent classification sends compact itinerary and last six history entries to the LLM; this is the natural place to include traveler profile.
+- Research summary sends question, intent, answer strategy, generation tasks, destination, and steps; it should also include profile so compare/personalize/risk answers can account for preferences.
+- Realtime query routing should remain single-fact `search`; profile is less critical for routing but can be included for context.
+- Existing test file `backend/tests/test_chatbot_agent.py` already has useful fakes and coverage for ask/update/search/research/clarify/API/SSE; append profile and new-intent regressions there.
+- The minimal backend implementation can reuse ask route for `compare` and `personalize` when no live search is required, and research route for `risk_check`; dedicated nodes are not necessary for this phase.
+- Profile extraction should happen after the node response is produced, so every response shape can include the merged profile without changing each node individually.
+
+### Final implementation notes
+
+- Backend now exposes `TravelerProfile` on `ChatbotMessageRequest` and `ChatbotMessageResponse`, plus `conversation_summary` for short-term context.
+- `compare` and `personalize` are first-class chatbot intents in backend schemas, state, frontend types, and intent prompt.
+- `compare` routes through the research path so it can search and summarize multi-option tradeoffs.
+- `personalize` routes through the update path only when a current itinerary exists and the profile has at least one constraint; otherwise it asks a clarifying question before editing.
+- Every final chatbot response is post-processed by `ChatbotAgent` to merge conservative rule-extracted profile facts from the current user message and return an updated short conversation summary.
+- Frontend stores the profile and conversation summary in localStorage, includes them in both streaming and non-streaming chatbot requests, and persists returned updates.
+- Floating ChatUI copy now consistently presents the panel as “智旅顾问”.
+
 ## Report-aware History Follow-up (2026-06-22)
 
 ### Requested behavior

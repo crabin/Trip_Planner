@@ -29,6 +29,8 @@ class IntentClassificationNode:
                         "message": request.message,
                         "has_current_itinerary": request.current_itinerary is not None,
                         "itinerary": compact_itinerary(request.current_itinerary),
+                        "traveler_profile": request.profile.model_dump(),
+                        "conversation_summary": request.conversation_summary,
                         "history": [item.model_dump() for item in request.history[-6:]],
                     },
                     ensure_ascii=False,
@@ -43,7 +45,16 @@ class IntentClassificationNode:
                 return fallback
             payload = json.loads(json_text)
             intent = payload.get("intent")
-            if intent not in {"ask", "update", "search", "research", "clarify", "risk_check"}:
+            if intent not in {
+                "ask",
+                "update",
+                "search",
+                "research",
+                "clarify",
+                "risk_check",
+                "compare",
+                "personalize",
+            }:
                 return fallback
             return IntentDecision(
                 intent=intent,
