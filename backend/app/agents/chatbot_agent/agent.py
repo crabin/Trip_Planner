@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.integrations.web_search import TavilyNewsAgency
+from app.integrations.web_search import FallbackWebSearchAgency
 from app.models.schemas import ChatbotMessageRequest, ChatbotMessageResponse
 from app.services.trip_service import edit_trip_itinerary
 
@@ -18,7 +18,7 @@ class ChatbotAgent:
         self,
         *,
         llm: Any | None = None,
-        search_agency: TavilyNewsAgency | None = None,
+        search_agency: FallbackWebSearchAgency | None = None,
     ) -> None:
         self.llm = llm if llm is not None else build_chat_llm()
         self.intent_node = IntentClassificationNode(self.llm)
@@ -27,11 +27,11 @@ class ChatbotAgent:
         self.search_node = SearchNode(llm=self.llm, search_agency=search_agency)
 
     @property
-    def search_agency(self) -> TavilyNewsAgency | None:
+    def search_agency(self) -> FallbackWebSearchAgency | None:
         return self.search_node.search_agency
 
     @search_agency.setter
-    def search_agency(self, value: TavilyNewsAgency | None) -> None:
+    def search_agency(self, value: FallbackWebSearchAgency | None) -> None:
         self.search_node.search_agency = value
 
     def classify_intent(self, request: ChatbotMessageRequest) -> IntentDecision:

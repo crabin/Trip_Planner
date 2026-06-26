@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1782128050868,
+  "lastScanned": 1782451923408,
   "projectRoot": "/Users/lpb/workspace/myProjects/Trip_Planner",
   "techStack": {
     "languages": [],
@@ -28,7 +28,10 @@
       "assets",
       "docs"
     ],
-    "gitBranches": null
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
   },
   "customNotes": [],
   "directoryMap": {
@@ -36,14 +39,14 @@
       "path": "assets",
       "purpose": "Static assets",
       "fileCount": 0,
-      "lastAccessed": 1782128050848,
+      "lastAccessed": 1782451923376,
       "keyFiles": []
     },
     "backend": {
       "path": "backend",
       "purpose": null,
       "fileCount": 9,
-      "lastAccessed": 1782128050848,
+      "lastAccessed": 1782451923379,
       "keyFiles": [
         "README.md",
         "main.py",
@@ -55,9 +58,10 @@
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 3,
-      "lastAccessed": 1782128050851,
+      "fileCount": 4,
+      "lastAccessed": 1782451923380,
       "keyFiles": [
+        "chatbot_design.md",
         "rag-build-and-evaluation-plan.md",
         "trip-generate-flow.md",
         "手把手教你制作旅行攻略.md"
@@ -67,7 +71,7 @@
       "path": "frontend",
       "purpose": null,
       "fileCount": 10,
-      "lastAccessed": 1782128050851,
+      "lastAccessed": 1782451923382,
       "keyFiles": [
         "README.md",
         "index.html",
@@ -80,7 +84,7 @@
       "path": "backend/app",
       "purpose": "Application code",
       "fileCount": 3,
-      "lastAccessed": 1782128050852,
+      "lastAccessed": 1782451923383,
       "keyFiles": [
         "__init__.py",
         "config.py"
@@ -90,7 +94,7 @@
       "path": "frontend/dist",
       "purpose": "Distribution/build output",
       "fileCount": 1,
-      "lastAccessed": 1782128050853,
+      "lastAccessed": 1782451923384,
       "keyFiles": [
         "index.html"
       ]
@@ -99,7 +103,7 @@
       "path": "frontend/node_modules",
       "purpose": "Dependencies",
       "fileCount": 2,
-      "lastAccessed": 1782128050853,
+      "lastAccessed": 1782451923384,
       "keyFiles": []
     }
   },
@@ -153,6 +157,12 @@
       "type": "file"
     },
     {
+      "path": "backend/pyproject.toml",
+      "accessCount": 6,
+      "lastAccessed": 1782451955859,
+      "type": "file"
+    },
+    {
       "path": "docs/trip-generate-flow.md",
       "accessCount": 5,
       "lastAccessed": 1778074127976,
@@ -162,12 +172,6 @@
       "path": "backend/app/models/db_models.py",
       "accessCount": 5,
       "lastAccessed": 1782033572984,
-      "type": "file"
-    },
-    {
-      "path": "backend/pyproject.toml",
-      "accessCount": 5,
-      "lastAccessed": 1782033592829,
       "type": "file"
     },
     {

@@ -26,7 +26,6 @@
 
 更多更新见：[CHANGELOG.md](./CHANGELOG.md)
 
-
 ---
 
 ## 📸 效果展示
@@ -83,15 +82,16 @@
 
 ### 核心架构分层
 
-| 层级 | 关键文件 | 职责 |
-| :--- | :--- | :--- |
-| 前端 | `frontend/src/views/*.vue` | 规划页、结果页、深度规划页、历史页展示与交互 |
-| 组件层 | `frontend/src/components/` | 高德地图展示、浮动聊天助手 |
-| 接口层 | `backend/app/api/routes/` | trip、chatbot、export、weather 路由 |
-| 服务层 | `backend/app/services/` | 行程编排、深度规划任务、报告目录、报告转 itinerary、地图 enrich、天气、缓存、导出、存储 |
-| Agent 层 | `backend/app/agents/` | 快速行程生成、浮动聊天助手、Destination Intelligence 深度攻略、Report 转 itinerary |
-| RAG 层 | `backend/app/rag/` | 向量入库、检索、Rerank |
-| 数据层 | `backend/data/` | 本地 Markdown 攻略文档 |
+
+| 层级     | 关键文件                   | 职责                                                                                    |
+| :------- | :------------------------- | :-------------------------------------------------------------------------------------- |
+| 前端     | `frontend/src/views/*.vue` | 规划页、结果页、深度规划页、历史页展示与交互                                            |
+| 组件层   | `frontend/src/components/` | 高德地图展示、浮动聊天助手                                                              |
+| 接口层   | `backend/app/api/routes/`  | trip、chatbot、export、weather 路由                                                     |
+| 服务层   | `backend/app/services/`    | 行程编排、深度规划任务、报告目录、报告转 itinerary、地图 enrich、天气、缓存、导出、存储 |
+| Agent 层 | `backend/app/agents/`      | 快速行程生成、浮动聊天助手、Destination Intelligence 深度攻略、Report 转 itinerary      |
+| RAG 层   | `backend/app/rag/`         | 向量入库、检索、Rerank                                                                  |
+| 数据层   | `backend/data/`            | 本地 Markdown 攻略文档                                                                  |
 
 ### 系统数据流
 
@@ -325,7 +325,7 @@ cp .env.example .env
 uv sync
 
 # 启动 FastAPI 服务
-uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
+uv run python -m uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 ```
 
 启动后访问：
@@ -432,27 +432,28 @@ written_count: 9
 
 ## 📡 核心接口
 
-| 方法 | 路径 | 说明 |
-| :--- | :--- | :--- |
-| `GET` | `/` | 服务启动检查 |
-| `GET` | `/health` | 健康检查 |
-| `POST` | `/trip/generate` | 生成行程 |
-| `POST` | `/trip/deep-generate` | 创建深度规划后台任务 |
-| `POST` | `/trip/edit` | 智能编辑行程 |
-| `POST` | `/trip/save` | 保存行程 |
-| `GET` | `/trip` | 历史列表 |
-| `GET` | `/trip/{trip_id}` | 行程详情 |
-| `GET` | `/trip/{trip_id}/deep-itinerary` | 把已完成深度规划转换为结果页 itinerary |
-| `GET` | `/trip/reports/{report_id}` | 查询历史 Markdown Report 详情 |
-| `GET` | `/trip/reports/{report_id}/itinerary` | 把历史 Markdown Report 转换为结果页 itinerary |
-| `GET` | `/trip/reports/{report_id}/markdown` | 查看历史 Markdown Report 原文 |
-| `DELETE` | `/trip/{trip_id}` | 删除行程 |
-| `POST` | `/chatbot/message` | 浮动旅行助手对话 |
-| `POST` | `/export/markdown` | 直接导出当前草稿 Markdown |
-| `POST` | `/export/pdf` | 直接导出当前草稿 PDF |
-| `GET` | `/export/{trip_id}/markdown` | 导出 Markdown |
-| `GET` | `/export/{trip_id}/pdf` | 导出 PDF |
-| `GET` | `/weather/forecast` | 查询天气 |
+
+| 方法     | 路径                                  | 说明                                          |
+| :------- | :------------------------------------ | :-------------------------------------------- |
+| `GET`    | `/`                                   | 服务启动检查                                  |
+| `GET`    | `/health`                             | 健康检查                                      |
+| `POST`   | `/trip/generate`                      | 生成行程                                      |
+| `POST`   | `/trip/deep-generate`                 | 创建深度规划后台任务                          |
+| `POST`   | `/trip/edit`                          | 智能编辑行程                                  |
+| `POST`   | `/trip/save`                          | 保存行程                                      |
+| `GET`    | `/trip`                               | 历史列表                                      |
+| `GET`    | `/trip/{trip_id}`                     | 行程详情                                      |
+| `GET`    | `/trip/{trip_id}/deep-itinerary`      | 把已完成深度规划转换为结果页 itinerary        |
+| `GET`    | `/trip/reports/{report_id}`           | 查询历史 Markdown Report 详情                 |
+| `GET`    | `/trip/reports/{report_id}/itinerary` | 把历史 Markdown Report 转换为结果页 itinerary |
+| `GET`    | `/trip/reports/{report_id}/markdown`  | 查看历史 Markdown Report 原文                 |
+| `DELETE` | `/trip/{trip_id}`                     | 删除行程                                      |
+| `POST`   | `/chatbot/message`                    | 浮动旅行助手对话                              |
+| `POST`   | `/export/markdown`                    | 直接导出当前草稿 Markdown                     |
+| `POST`   | `/export/pdf`                         | 直接导出当前草稿 PDF                          |
+| `GET`    | `/export/{trip_id}/markdown`          | 导出 Markdown                                 |
+| `GET`    | `/export/{trip_id}/pdf`               | 导出 PDF                                      |
+| `GET`    | `/weather/forecast`                   | 查询天气                                      |
 
 ---
 

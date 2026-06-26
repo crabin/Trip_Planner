@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from app.agents.trip_planner_agent.utils import response_content_to_text
-from app.integrations.web_search import TavilyNewsAgency, TavilyResponse
+from app.integrations.web_search import FallbackWebSearchAgency, TavilyResponse
 from app.models.schemas import ChatbotMessageRequest, ChatbotMessageResponse
 
 from ..prompts import SEARCH_SUMMARY_SYSTEM_PROMPT
@@ -17,14 +17,14 @@ class SearchNode:
         self,
         *,
         llm: Any | None,
-        search_agency: TavilyNewsAgency | None = None,
+        search_agency: FallbackWebSearchAgency | None = None,
     ) -> None:
         self.llm = llm
         self.search_agency = search_agency
 
-    def _get_search_agency(self) -> TavilyNewsAgency:
+    def _get_search_agency(self) -> FallbackWebSearchAgency:
         if self.search_agency is None:
-            self.search_agency = TavilyNewsAgency()
+            self.search_agency = FallbackWebSearchAgency()
         return self.search_agency
 
     def run(
