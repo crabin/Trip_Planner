@@ -43,14 +43,27 @@ class IntentClassificationNode:
                 return fallback
             payload = json.loads(json_text)
             intent = payload.get("intent")
-            if intent not in {"ask", "update", "search"}:
+            if intent not in {"ask", "update", "search", "research", "clarify", "risk_check"}:
                 return fallback
             return IntentDecision(
                 intent=intent,
                 reason=str(payload.get("reason") or fallback.reason),
+                answer_strategy=payload.get("answer_strategy") or fallback.answer_strategy,
                 search_query=payload.get("search_query") or fallback.search_query,
                 edit_scope=payload.get("edit_scope") or fallback.edit_scope,
+                research_topics=_string_list(payload.get("research_topics"), fallback.research_topics),
+                search_queries=_string_list(payload.get("search_queries"), fallback.search_queries),
+                generation_tasks=_string_list(
+                    payload.get("generation_tasks"),
+                    fallback.generation_tasks,
+                ),
+                missing_slots=_string_list(payload.get("missing_slots"), fallback.missing_slots),
             )
         except Exception:
             return fallback
 
+
+def _string_list(value: object, fallback: list[str]) -> list[str]:
+    if not isinstance(value, list):
+        return fallback
+    return [str(item) for item in value if item]

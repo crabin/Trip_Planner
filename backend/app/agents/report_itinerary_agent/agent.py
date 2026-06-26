@@ -26,6 +26,7 @@ from app.agents.report_itinerary_agent.state import (
     ReportDayDraft,
     ReportExtractionSection,
 )
+from app.agents.report_itinerary_agent.graph import run_report_itinerary_graph
 from app.agents.trip_planner_agent.llms import LLMSettings, build_chat_llm
 from app.models.schemas import (
     BudgetBreakdown,
@@ -1019,7 +1020,8 @@ class ReportItineraryAgent:
         cache_prefix: str,
         force_rebuild: bool = False,
     ) -> Itinerary:
-        return _document_to_itinerary(
+        return run_report_itinerary_graph(
+            _document_to_itinerary,
             source_id=source_id,
             document=document,
             destination=destination,

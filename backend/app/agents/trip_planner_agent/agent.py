@@ -5,10 +5,9 @@ from typing import Any
 
 from app.models.schemas import DayPlan, TripEditRequest, TripRequest
 
+from .graph import run_day_edit_graph, run_planner_graph
 from .llms import LLMSettings, build_chat_llm
 from .nodes.context import ContextRetriever, collect_trip_context as collect_context_node
-from .nodes.generation import generate_day_edit, generate_trip_draft
-from .prompts import build_day_edit_messages, build_planner_messages
 from .state import DayEditDraft, PlannerDraft
 from .tools.rag_tool import get_destination_guide_context
 
@@ -51,8 +50,13 @@ def generate_planner_draft(
     print("[trip_planner_agent] 准备调用大模型...")
     print(f"[trip_planner_agent] model = {resolved.model}")
     print(f"[trip_planner_agent] base_url = {resolved.base_url or '<DEFAULT>'}")
-    messages = build_planner_messages(request, rag_contexts, day_count)
-    result = generate_trip_draft(llm, messages, day_count)
+    result = run_planner_graph(
+        request=request,
+        rag_contexts=rag_contexts,
+        day_count=day_count,
+        settings=resolved,
+        llm_factory=lambda _settings: llm,
+    )
     if result is not None:
         print("[trip_planner_agent] 大模型调用完成。")
     return result
@@ -72,8 +76,12 @@ def generate_day_edit_draft(
         return None
     print("[trip_planner_agent] 准备调用大模型进行单日编辑...")
     print(f"[trip_planner_agent] model = {resolved.model}")
-    messages = build_day_edit_messages(request, target_day)
-    return generate_day_edit(llm, messages)
+    return run_day_edit_graph(
+        request=request,
+        target_day=target_day,
+        settings=resolved,
+        llm_factory=lambda _settings: llm,
+    )
 
 
 __all__ = [
