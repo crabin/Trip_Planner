@@ -9,6 +9,7 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from app.agents.tools.transport_tool import search_train_tickets_for_agent
 from app.agents.trip_planner_agent.utils import extract_json_object, response_content_to_text
 from app.integrations.web_search import FallbackWebSearchAgency, TavilyResponse
 from app.models.schemas import (
@@ -161,6 +162,39 @@ class RealtimeQueryRouter:
         try:
             if kind == "weather":
                 answer, sources = answer_weather(route.search_query or request.message)
+            elif kind == "transport":
+                train_result = search_train_tickets_for_agent(
+                    request.message,
+                    search_query=route.search_query,
+                )
+                if train_result.available:
+                    answer = train_result.answer
+                    sources = [
+                        ChatbotSearchSource(
+                            title="中国铁路12306 / 12306 MCP",
+                            url="https://www.12306.cn/index/",
+                            content="\n".join(train_result.source_notes),
+                        )
+                    ]
+                else:
+                    search_response = self.search_agency.basic_search_news(
+                        running_step.query or route.search_query,
+                        max_results=MAX_SEARCH_RESULTS,
+                    )
+                    sources = format_search_sources(search_response)
+                    answer = (
+                        f"## 12306实时查询未完成\n"
+                        f"- 原因：{train_result.error_message}\n"
+                        "- 已降级使用网页实时搜索整理线索。\n\n"
+                        + answer_from_search(
+                            question=request.message,
+                            query_kind=kind,
+                            response=search_response,
+                            sources=sources,
+                            llm=self.llm,
+                            search_query=running_step.query or route.search_query,
+                        )
+                    )
             else:
                 search_response = self.search_agency.basic_search_news(
                     running_step.query or route.search_query,
@@ -326,7 +360,7 @@ def handler_title(kind: RealtimeQueryKind) -> str:
     return {
         "weather": "调用天气服务",
         "scenic_notice": "查询景区官方公告",
-        "transport": "查询交通实时信息",
+        "transport": "查询12306实时余票",
         "ticket": "查询门票和预约信息",
         "business_hours": "查询开放或营业时间",
         "generic_search": "查询实时网页信息",
@@ -527,6 +561,8 @@ def summarize_step(
 ) -> str:
     if kind == "weather":
         return "已获取天气服务返回的结构化预报。"
+    if kind == "transport" and any("12306 MCP" in source.title for source in sources):
+        return "已获取12306 MCP返回的结构化铁路余票。"
     if sources:
         return f"已获取 {len(sources)} 条实时搜索来源。"
     if "没有找到足够可靠" in answer:

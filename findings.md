@@ -1,5 +1,33 @@
 # Findings
 
+## 12306 MCP Realtime Rail Query Optimization (2026-06-27)
+
+### Phase 32 shared agent tool registration
+
+- Before Phase 32, Chatbot realtime transport queries were the only agent path using the 12306 service. Trip Planner context collection, Destination Intelligence search tooling, and Report Itinerary conversion did not call the rail query path.
+- The shared agent boundary is now `app.agents.tools.transport_tool.search_train_tickets_for_agent()`. This wrapper catches realtime failures and returns `TransportToolResult(available=False, ...)` so agent flows can degrade without exceptions.
+- Chatbot no longer directly imports `query_realtime_train_tickets()` or `Remote12306McpClient`; it uses the shared tool and keeps its existing web-search fallback.
+- Trip Planner only appends rail evidence when `special_notes` includes an explicit rail route, date or relative date, and time window. This prevents ordinary destination notes from triggering realtime calls.
+- Destination Intelligence keeps the existing web evidence model by wrapping `train_ticket_query` output as a `TavilyResponse` with one `SearchResult`.
+- Report Itinerary enriches only structured rail `ExtractedTransport` rows that already include mode, route, and day date. Failed rail lookup leaves the original report-derived transport text unchanged.
+
+### Verified MCP service
+
+- Remote Streamable HTTP endpoint: `http://8.135.44.223:10808/mcp`.
+- MCP initialize succeeds and reports server `12306-mcp` version `0.3.8`.
+- `tools/list` includes `get-current-date`, station-code lookup tools, `get-tickets`, `get-interline-tickets`, and `get-train-route-stations`.
+- `get-current-date` returned `2026-06-27` in the service's Shanghai timezone.
+- `get-tickets` succeeds for `2026-06-28`, `上海` to `杭州`, `trainFilterFlags=G`, `earliestStartTime=6`, `latestStartTime=12`, `format=json`.
+- Successful sample trains include `G1321` 06:07 Shanghai Hongqiao to Hangzhou East, `G7331` 06:13, `G205` 07:00, and `G219` 07:04, with second-class seats available in the returned JSON.
+- The earlier host `lpbkuaile6:10808` was reachable at MCP protocol level but failed upstream with `Error: get cookie failed. Check your network.`; this is a provider/network failure and should trigger fallback.
+
+### Implementation constraints
+
+- The MCP endpoint returns SSE-style `event: message` blocks even for POST `/mcp`, so the Python client must parse `data: {...}` rather than assuming raw JSON.
+- Ticket payload content is nested as JSON text at `result.content[0].text`; text may be either a JSON list or an `Error:` message.
+- Chatbot transport queries currently use `FallbackWebSearchAgency.basic_search_news`, so the 12306 path must be inserted before this fallback.
+- Do not write external web/API text into `task_plan.md`; keep provider observations here because `task_plan.md` is auto-read by the planning skill.
+
 ## Smart Travel Advisor Upgrade (2026-06-26)
 
 ### Requested behavior

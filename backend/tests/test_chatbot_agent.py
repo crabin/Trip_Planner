@@ -19,7 +19,9 @@ from app.models.schemas import (
     MealItem,
     SpotItem,
 )
+from app.agents.tools.transport_tool import TransportToolResult
 from app.integrations.web_search import SearchResult, TavilyResponse
+from app.services.transport_query_service import TrainTicket
 
 
 class FakeResponse:
@@ -492,21 +494,88 @@ def test_chatbot_agent_routes_realtime_search_categories(monkeypatch) -> None:
         assert all(term in queries[-1] for term in expected_terms)
 
 
-def test_realtime_transport_answer_uses_llm_summary_instead_of_first_result_template(monkeypatch) -> None:
+def test_realtime_transport_answer_uses_12306_mcp_when_available(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(
+        intent="search",
+        route_kind="transport",
+        route_query="上海到杭州 明天上午 高铁 直达 不中转",
+    )
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            raise AssertionError("12306 MCP 成功时不应降级到网页搜索")
+
+    captured = {}
+
+    def fake_transport_tool(message: str, search_query: str = "") -> TransportToolResult:
+        captured["message"] = message
+        captured["search_query"] = search_query
+        return TransportToolResult(
+            available=True,
+            answer=(
+                "## 明确结论\n"
+                "- G205 上海虹桥 07:00 -> 杭州东 07:45，历时 00:45；二等座有，87元\n"
+                "- 12306 官方页面为准"
+            ),
+            source_notes=["2026-06-28 上海到杭州返回 1 条直达车次。"],
+            tickets=[
+                TrainTicket(
+                    train_code="G205",
+                    from_station="上海虹桥",
+                    to_station="杭州东",
+                    start_time="07:00",
+                    arrive_time="07:45",
+                    duration="00:45",
+                    date="2026-06-28",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.agents.chatbot_agent.nodes.realtime_query.search_train_tickets_for_agent",
+        fake_transport_tool,
+    )
+
+    response = ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(message="高铁，上海到杭州，明天上午，接受直达优先，不中转")
+    )
+
+    assert "G205" in response.reply
+    assert "上海虹桥 07:00 -> 杭州东 07:45" in response.reply
+    assert "二等座有，87元" in response.reply
+    assert "12306 官方页面为准" in response.reply
+    assert response.sources[0].title == "中国铁路12306 / 12306 MCP"
+    assert response.sources[0].content == "2026-06-28 上海到杭州返回 1 条直达车次。"
+    assert response.research_steps[1].title == "查询12306实时余票"
+    assert response.research_steps[1].summary == "已获取12306 MCP返回的结构化铁路余票。"
+    assert captured == {
+        "message": "高铁，上海到杭州，明天上午，接受直达优先，不中转",
+        "search_query": "上海到杭州 明天上午 高铁 直达 不中转",
+    }
+
+
+def test_realtime_transport_falls_back_to_web_search_when_12306_fails(monkeypatch) -> None:
     fake_llm = FakeChatLLM(
         intent="search",
         route_kind="transport",
         route_query="上海到杭州 明天上午 高铁 直达 不中转",
         summary=(
             "上海到杭州明天上午优先看上海虹桥到杭州东的直达高铁。"
-            "搜索结果只能证明这条线路班次密集，不能确认具体余票；"
-            "不接受中转的话，买票时在 12306 只筛选直达车次并复核余票。"
-            "\n\n来源：\n"
-            "- [上海至杭州火车票](https://www.12306.cn/)"
-            "\n- [Klook 上海至杭州高铁](https://www.klook.com/train)"
+            "网页搜索只能作为线索，余票仍需以 12306 为准。"
         ),
     )
     monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+    monkeypatch.setattr(
+        "app.agents.chatbot_agent.nodes.realtime_query.search_train_tickets_for_agent",
+        lambda message, search_query="": TransportToolResult(
+            available=False,
+            answer="",
+            source_notes=[],
+            tickets=[],
+            error_message="12306 MCP 未启用。",
+        ),
+    )
 
     class FakeSearchAgency:
         def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
@@ -514,15 +583,10 @@ def test_realtime_transport_answer_uses_llm_summary_instead_of_first_result_temp
                 query=query,
                 results=[
                     SearchResult(
-                        title="上海到杭州的高铁，车站信息确认一下？ : r/travelchina - Reddit",
-                        url="https://www.reddit.com/r/travelchina/comments/test",
-                        content="我简直惊呆了，火车之间发车间隔只有5-10分钟。一个朋友建议我看看klook.com。",
-                    ),
-                    SearchResult(
                         title="上海至杭州火车票查询 - 12306",
                         url="https://www.12306.cn/",
                         content="铁路车票、余票、票价和列车时刻请以铁路12306为准。",
-                    ),
+                    )
                 ],
             )
 
@@ -530,12 +594,10 @@ def test_realtime_transport_answer_uses_llm_summary_instead_of_first_result_temp
         ChatbotMessageRequest(message="高铁，上海到杭州，明天上午，接受直达优先，不中转")
     )
 
+    assert "12306实时查询未完成" in response.reply
+    assert "已降级使用网页实时搜索整理线索" in response.reply
     assert "上海虹桥到杭州东" in response.reply
-    assert "12306" in response.reply
-    assert "针对“高铁，上海到杭州" not in response.reply
-    assert "我简直惊呆了" not in response.reply
     assert fake_llm.realtime_summary_payload["query_kind"] == "transport"
-    assert fake_llm.realtime_summary_payload["sources"][0]["title"].startswith("上海到杭州的高铁")
 
 
 def test_chatbot_agent_streams_query_plan_and_steps_for_search(monkeypatch) -> None:

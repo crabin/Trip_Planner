@@ -5,11 +5,13 @@ from pathlib import Path
 import pytest
 
 from app.agents.report_itinerary_agent import agent
+from app.agents.tools.transport_tool import TransportToolResult
 from app.agents.report_itinerary_agent.state import (
     ChunkExtraction,
     ChunkExtractionBatch,
     ExtractedDay,
     ExtractedReport,
+    ExtractedTransport,
 )
 from app.models.schemas import (
     BudgetBreakdown,
@@ -21,6 +23,7 @@ from app.models.schemas import (
     SpotItem,
 )
 from app.services.itinerary_display_service import attach_itinerary_display
+from app.services.transport_query_service import TrainTicket
 
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -416,7 +419,6 @@ def test_provider_failure_keeps_chunk_checkpoint_without_formal_cache(
 ) -> None:
     monkeypatch.setattr(agent.report_catalog_service, "REPORT_DIR", tmp_path)
     markdown = "# 洛阳两日攻略\n\n## 每日行程\n\n### 2026-06-25｜应天门\n\n完整安排\n\n### 2026-06-26｜龙门石窟\n\n完整安排"
-    sections = agent._build_llm_extraction_sections(markdown)
     monkeypatch.setattr(agent, "_MAX_BATCH_CHUNKS", 1)
     monkeypatch.setattr(agent, "_MAX_BATCH_CHARS", 10_000)
     monkeypatch.setattr(agent.config, "REPORT_ITINERARY_MAX_CONCURRENT_BATCHES", 1)
@@ -445,6 +447,117 @@ def test_provider_failure_keeps_chunk_checkpoint_without_formal_cache(
 
     assert agent._chunk_checkpoint_path("report_itinerary", "report_1").exists()
     assert not Path(agent._extracted_report_json_path("report_itinerary", "report_1")).exists()
+
+
+def test_report_itinerary_enriches_explicit_train_transport_note(monkeypatch) -> None:
+    extracted = ExtractedReport(
+        overview="完整概览",
+        start_date="2026-06-28",
+        end_date="2026-06-28",
+        total_days=1,
+        days=[
+            ExtractedDay(
+                day_index=1,
+                date="2026-06-28",
+                theme="抵达杭州",
+                full_day_text="上海到杭州 2026-06-28 上午高铁直达后游览西湖。",
+                transport=[
+                    ExtractedTransport(
+                        mode="高铁",
+                        from_place="上海",
+                        to_place="杭州",
+                        duration="上午直达",
+                    )
+                ],
+            )
+        ],
+    )
+    monkeypatch.setattr(agent, "_maybe_enrich_itinerary_with_map_data", lambda itinerary, city: itinerary)
+    captured = {}
+
+    def fake_transport_tool(message: str, search_query: str = "") -> TransportToolResult:
+        captured["message"] = message
+        captured["search_query"] = search_query
+        return TransportToolResult(
+            available=True,
+            answer="## 推荐直达车次\n- G205 上海虹桥 07:00 -> 杭州东 07:45",
+            source_notes=["来源：中国铁路12306 / 12306 MCP https://www.12306.cn/index/"],
+            tickets=[
+                TrainTicket(
+                    train_code="G205",
+                    from_station="上海虹桥",
+                    to_station="杭州东",
+                    start_time="07:00",
+                    arrive_time="07:45",
+                    duration="00:45",
+                    date="2026-06-28",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(agent, "search_train_tickets_for_agent", fake_transport_tool)
+
+    itinerary = agent._itinerary_from_extracted_report(
+        source_id="report_1",
+        source_sha256="abc",
+        extracted=extracted,
+        destination="杭州",
+        title="杭州攻略",
+        cache_prefix="report_itinerary",
+        chunk_count=1,
+    )
+
+    assert "G205" in itinerary.days[0].transport[0].duration
+    assert "上海虹桥 07:00 -> 杭州东 07:45" in itinerary.days[0].transport[0].duration
+    assert captured["search_query"] == "上海到杭州 2026-06-28 上午直达 高铁"
+
+
+def test_report_itinerary_keeps_original_transport_when_train_query_fails(monkeypatch) -> None:
+    extracted = ExtractedReport(
+        overview="完整概览",
+        start_date="2026-06-28",
+        end_date="2026-06-28",
+        total_days=1,
+        days=[
+            ExtractedDay(
+                day_index=1,
+                date="2026-06-28",
+                theme="抵达杭州",
+                transport=[
+                    ExtractedTransport(
+                        mode="高铁",
+                        from_place="上海",
+                        to_place="杭州",
+                        duration="上午直达",
+                    )
+                ],
+            )
+        ],
+    )
+    monkeypatch.setattr(agent, "_maybe_enrich_itinerary_with_map_data", lambda itinerary, city: itinerary)
+    monkeypatch.setattr(
+        agent,
+        "search_train_tickets_for_agent",
+        lambda message, search_query="": TransportToolResult(
+            available=False,
+            answer="",
+            source_notes=[],
+            tickets=[],
+            error_message="12306 MCP 未启用。",
+        ),
+    )
+
+    itinerary = agent._itinerary_from_extracted_report(
+        source_id="report_1",
+        source_sha256="abc",
+        extracted=extracted,
+        destination="杭州",
+        title="杭州攻略",
+        cache_prefix="report_itinerary",
+        chunk_count=1,
+    )
+
+    assert itinerary.days[0].transport[0].duration == "上午直达"
 
 
 def test_display_uses_typed_overview_hides_unknown_costs_and_deduplicates_pois() -> None:

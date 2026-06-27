@@ -10,6 +10,9 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
+from app.agents.tools.transport_tool import search_train_tickets_for_agent
+from app.integrations.web_search import SearchResult
+
 from .graph import run_destination_research_graph
 from .llms import LLMClient
 from .nodes import (
@@ -35,6 +38,45 @@ def _write_text_atomic(path: Path, content: str) -> None:
         temporary_path.replace(path)
     finally:
         temporary_path.unlink(missing_ok=True)
+
+
+def _train_ticket_response_for_destination_query(query: str) -> TavilyResponse:
+    result = search_train_tickets_for_agent(query, search_query=query)
+    if not result.available:
+        return TavilyResponse(
+            query=query,
+            answer=None,
+            results=[
+                SearchResult(
+                    title="中国铁路12306 / 12306 MCP 查询未完成",
+                    url="https://www.12306.cn/index/",
+                    content=f"12306 实时铁路查询未完成：{result.error_message}",
+                    raw_content="铁路余票、票价和可购买状态需在出发前以 12306 官方页面复核。",
+                    score=1.0,
+                )
+            ],
+        )
+    content = "\n".join(
+        [
+            result.answer,
+            *result.source_notes,
+            "铁路余票、票价和可购买状态变化很快，最终购票、锁票和候补以 12306 官方页面为准。",
+        ]
+    )
+    return TavilyResponse(
+        query=query,
+        answer=result.answer,
+        results=[
+            SearchResult(
+                title="中国铁路12306 / 12306 MCP",
+                url="https://www.12306.cn/index/",
+                content=result.answer,
+                raw_content=content,
+                score=1.0,
+            )
+        ],
+    )
+
 
 class DestinationIntelligenceAgent:
     """Destination Intelligence Agent主类"""
@@ -129,6 +171,7 @@ class DestinationIntelligenceAgent:
                 - "search_news_last_week": 本周最新信息
                 - "search_images_for_news": 目的地图片搜索
                 - "search_news_by_date": 按来源发布日期搜索信息
+                - "train_ticket_query": 12306 MCP 铁路实时余票查询
             query: 搜索查询
             **kwargs: 额外参数（如start_date, end_date, max_results）
             
@@ -154,6 +197,8 @@ class DestinationIntelligenceAgent:
             if not start_date or not end_date:
                 raise ValueError("search_news_by_date工具需要start_date和end_date参数")
             return self.search_agency.search_news_by_date(query, start_date, end_date)
+        elif tool_name == "train_ticket_query":
+            return _train_ticket_response_for_destination_query(query)
         else:
             logger.warning(f"  ⚠️  未知的搜索工具: {tool_name}，使用默认基础搜索")
             return self.search_agency.basic_search_news(query)

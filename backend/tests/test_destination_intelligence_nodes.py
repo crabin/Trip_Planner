@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agents.destination_intelligence_agent.agent import DestinationIntelligenceAgent
+from app.agents.tools.transport_tool import TransportToolResult
 from app.agents.destination_intelligence_agent.nodes.search_node import (
     FirstSearchNode,
     ReflectionNode,
@@ -20,6 +21,7 @@ from app.agents.destination_intelligence_agent.state import State
 from app.agents.destination_intelligence_agent.utils.text_processing import (
     extract_clean_response,
 )
+from app.services.transport_query_service import TrainTicket
 
 
 class FakeLLM:
@@ -104,6 +106,66 @@ def test_reflection_preserves_date_search_parameters() -> None:
     assert result["search_tool"] == "search_news_by_date"
     assert result["start_date"] == "2026-06-01"
     assert result["end_date"] == "2026-06-22"
+
+
+def test_search_nodes_preserve_train_ticket_query_tool() -> None:
+    node = FirstSearchNode(FakeLLM(""))
+
+    result = node.process_output(
+        '{"search_query":"上海到杭州 2026-06-28 上午 高铁 直达",'
+        '"search_tool":"train_ticket_query",'
+        '"reasoning":"跨市铁路段需要查12306实时余票"}'
+    )
+
+    assert result["search_tool"] == "train_ticket_query"
+
+
+def test_destination_agent_executes_train_ticket_query_as_search_evidence(monkeypatch) -> None:
+    agent = object.__new__(DestinationIntelligenceAgent)
+    agent.search_agency = None
+
+    captured = {}
+
+    def fake_transport_tool(message: str, search_query: str = "") -> TransportToolResult:
+        captured["message"] = message
+        captured["search_query"] = search_query
+        return TransportToolResult(
+            available=True,
+            answer="## 推荐直达车次\n- G205 上海虹桥 07:00 -> 杭州东 07:45",
+            source_notes=["来源：中国铁路12306 / 12306 MCP https://www.12306.cn/index/"],
+            tickets=[
+                TrainTicket(
+                    train_code="G205",
+                    from_station="上海虹桥",
+                    to_station="杭州东",
+                    start_time="07:00",
+                    arrive_time="07:45",
+                    duration="00:45",
+                    date="2026-06-28",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.agents.destination_intelligence_agent.agent.search_train_tickets_for_agent",
+        fake_transport_tool,
+    )
+
+    response = agent.execute_search_tool(
+        "train_ticket_query",
+        "上海到杭州 2026-06-28 上午 高铁 直达",
+    )
+
+    assert response.query == "上海到杭州 2026-06-28 上午 高铁 直达"
+    assert response.answer == "## 推荐直达车次\n- G205 上海虹桥 07:00 -> 杭州东 07:45"
+    assert response.results[0].title == "中国铁路12306 / 12306 MCP"
+    assert response.results[0].url == "https://www.12306.cn/index/"
+    assert "G205" in response.results[0].content
+    assert "12306 官方页面为准" in response.results[0].raw_content
+    assert captured == {
+        "message": "上海到杭州 2026-06-28 上午 高铁 直达",
+        "search_query": "上海到杭州 2026-06-28 上午 高铁 直达",
+    }
 
 
 def test_invalid_search_response_falls_back_to_trip_specific_query() -> None:

@@ -66,6 +66,13 @@ AMAP_TIMEOUT_SECONDS = int(os.getenv("AMAP_TIMEOUT_SECONDS", "20"))
 ENABLE_AMAP_ENRICHMENT = os.getenv("ENABLE_AMAP_ENRICHMENT", "false").lower() == "true"
 
 
+# 12306 MCP / 实时铁路余票配置
+ENABLE_12306_MCP = os.getenv("ENABLE_12306_MCP", "false").lower() == "true"
+MCP_12306_URL = os.getenv("MCP_12306_URL", "")
+MCP_12306_TIMEOUT_SECONDS = int(os.getenv("MCP_12306_TIMEOUT_SECONDS", "30"))
+MCP_12306_MAX_RESULTS = int(os.getenv("MCP_12306_MAX_RESULTS", "20"))
+
+
 # 美团 / 大众点评等本地生活配置
 ENABLE_LOCAL_LIFE_ENRICHMENT = (
     os.getenv("ENABLE_LOCAL_LIFE_ENRICHMENT", "false").lower() == "true"

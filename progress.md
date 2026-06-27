@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-06-27
+
+- Started Phase 31 for 12306 MCP realtime rail query optimization using `planning-with-files`.
+- Verified current code path: chatbot realtime `transport` queries are routed by `RealtimeQueryRouter` and currently fall through to generic web search.
+- Existing config already exposes `ENABLE_12306_MCP`, `MCP_12306_URL`, `MCP_12306_TIMEOUT_SECONDS`, and `MCP_12306_MAX_RESULTS`; `.env.example` has the template and local `.env` holds the live endpoint.
+- Recorded the verified remote MCP behavior and the first-server cookie failure in `findings.md`.
+- Added the MCP client, transport query service, and chatbot transport branch. First focused test run found route extraction did not accept punctuation/space after the destination; fixed the regex terminator.
+- Real MCP smoke found ISO dates were being parsed as time ranges, producing an invalid `latestStartTime`; fixed time-window parsing to remove dates first and added a regression.
+- Focused verification passed: `tests/test_transport_query_service.py tests/test_chatbot_agent.py` produced 45 passes, targeted ruff passed, and a live MCP smoke returned G1321/G7331/G7333/G3091 with seat availability and prices.
+- Related regression gate passed: 64 tests across transport, chatbot, schemas, and destination search. `git diff --check` passed.
+- Full backend suite passed: 201 tests, 6 existing warnings, in 260.78 seconds. Phase 31 is complete.
+- Started Phase 32 to register 12306 MCP rail lookup as a shared agent tool instead of a Chatbot-only path.
+- Added RED tests for `app.agents.tools.transport_tool`, Chatbot shared-tool usage, Trip Planner rail context, Destination Intelligence `train_ticket_query`, and Report Itinerary rail transport enrichment.
+- Implemented `TransportToolResult` plus `search_train_tickets_for_agent()`, and migrated Chatbot realtime transport handling to it.
+- Integrated Trip Planner context collection, Destination Intelligence search execution/prompt contract, and Report Itinerary conversion with graceful realtime-failure degradation.
+- Verified the agent layer no longer imports `Remote12306McpClient` or calls `query_realtime_train_tickets()` outside `app.agents.tools.transport_tool`.
+- Focused Phase 32 RED-to-GREEN gate passed: 16 targeted tests covering transport service/tool and all new agent integration points.
+
 ## 2026-06-26
 
 - Resumed the active goal with the required `planning-with-files` skill.

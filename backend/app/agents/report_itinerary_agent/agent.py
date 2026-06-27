@@ -11,10 +11,10 @@ from markdown_it import MarkdownIt
 from pydantic import BaseModel, ValidationError
 
 from app import config
+from app.agents.tools.transport_tool import search_train_tickets_for_agent
 from app.agents.report_itinerary_agent.prompts import (
     SYSTEM_PROMPT,
     build_chunk_batch_prompt,
-    build_consolidation_prompt,
 )
 from app.agents.report_itinerary_agent.state import (
     ChunkExtraction,
@@ -51,6 +51,7 @@ _MAX_BATCH_CHUNKS = 6
 _MAX_BATCH_CHARS = 6000
 _MAX_CONCURRENT_BATCHES = 3
 _STRUCTURED_ATTEMPTS = 2
+_TRAIN_MODES = ("高铁", "动车", "火车", "铁路", "列车")
 
 
 class ReportConversionError(RuntimeError):
@@ -116,6 +117,45 @@ _SchemaT = TypeVar("_SchemaT", bound=BaseModel)
 def _cache_trip_id(prefix: str, source_id: str) -> str:
     digest = sha256(source_id.encode("utf-8")).hexdigest()[:16]
     return f"{prefix}_{digest}"
+
+
+def _transport_duration_with_train_note(
+    *,
+    item: Any,
+    day_date: str | None,
+) -> str | None:
+    original_duration = item.duration
+    if not _should_query_train_transport(item, day_date):
+        return original_duration
+    query = _train_query_from_report_transport(
+        item=item,
+        day_date=day_date,
+    )
+    result = search_train_tickets_for_agent(query, search_query=query)
+    if not result.available:
+        return original_duration
+    return "\n".join(part for part in (original_duration, result.answer) if part)
+
+
+def _should_query_train_transport(item: Any, day_date: str | None) -> bool:
+    mode = str(getattr(item, "mode", "") or "")
+    return bool(
+        day_date
+        and getattr(item, "from_place", None)
+        and getattr(item, "to_place", None)
+        and any(train_mode in mode for train_mode in _TRAIN_MODES)
+    )
+
+
+def _train_query_from_report_transport(
+    *,
+    item: Any,
+    day_date: str | None,
+) -> str:
+    time_hint = str(getattr(item, "duration", "") or "").strip()
+    route = f"{item.from_place}到{item.to_place}"
+    pieces = [route, day_date or "", time_hint, str(getattr(item, "mode", "") or "铁路")]
+    return " ".join(piece for piece in pieces if piece).strip()
 
 
 def _source_sha256(markdown: str) -> str:
@@ -706,7 +746,6 @@ def _extract_report_with_llm(
                 for index, batch in missing_batches
             }
             for future in as_completed(future_map):
-                batch_index = future_map[future]
                 batch_result = future.result()
                 for extraction in batch_result:
                     checkpoint_chunks[extraction.chunk_id] = extraction
@@ -888,7 +927,10 @@ def _itinerary_from_extracted_report(
                 from_place=item.from_place,
                 to_place=item.to_place,
                 estimated_cost=item.estimated_cost,
-                duration=item.duration,
+                duration=_transport_duration_with_train_note(
+                    item=item,
+                    day_date=extracted_day.date,
+                ),
             )
             for item in extracted_day.transport
         ]

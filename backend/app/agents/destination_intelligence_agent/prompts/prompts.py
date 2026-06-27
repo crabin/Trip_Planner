@@ -169,6 +169,7 @@ SYSTEM_PROMPT_FIRST_SEARCH = f"""
 - search_news_last_24_hours / search_news_last_week：核查近期关闭、天气预警、罢工、活动调整等即时变化。
 - search_images_for_news：仅当地图、景点分布或视觉识别确有价值时使用。
 - search_news_by_date：按“信息发布日期”筛选公告；仅用于特定历史/近期公告窗口，需要 start_date 和 end_date，不要把未来旅行日期误当成发布日期范围。
+- train_ticket_query：仅当查询包含明确铁路出发地、到达地、出行日期和时间窗时使用，用于 12306 MCP 实时直达余票；查询文本必须包含路线、YYYY-MM-DD 或明确相对日期、上午/下午/具体时间窗和高铁/动车/火车关键词。
 
 生成一个高信息量的搜索查询。查询必须带上目的地，并在相关时带上旅行月份/精确日期、官方/预约/开放时间/交通等限定词。优先官方旅游、交通、景区、气象、政府或签证来源；酒店餐饮可补充可信平台，但价格、库存、营业时间必须标明需临行复核。
 
@@ -212,7 +213,7 @@ SYSTEM_PROMPT_REFLECTION = f"""
 
 先按以下清单寻找最影响可执行性的一个缺口，再生成一次补充搜索：目标日期是否适用；来源是否官方/足够新；交通与开放时间是否可衔接；景点是否已按地理位置和时长取舍；酒店晚数是否覆盖；是否有用餐/补给空档；是否照顾同行人、预算、节奏和无障碍/饮食要求；是否有预约、天气或关闭风险；是否给出备选。
 
-工具名称和规则与首次搜索相同。`search_news_by_date` 只按公告发布日期筛选，并且必须提供 YYYY-MM-DD 的 start_date/end_date。查询必须包含目的地及与缺口相关的目标日期或关键词。
+工具名称和规则与首次搜索相同。`search_news_by_date` 只按公告发布日期筛选，并且必须提供 YYYY-MM-DD 的 start_date/end_date。`train_ticket_query` 仅用于明确铁路路线、日期和时间窗的实时直达余票核查。查询必须包含目的地及与缺口相关的目标日期或关键词。
 
 <OUTPUT JSON SCHEMA>
 {json.dumps(output_schema_reflection, indent=2, ensure_ascii=False)}
