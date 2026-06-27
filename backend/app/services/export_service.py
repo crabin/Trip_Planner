@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from io import BytesIO
+import ipaddress
+import socket
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 
 from app.models.schemas import Itinerary, TripDetailResponse
@@ -167,11 +170,38 @@ def _draw_pdf_footer(canvas, doc, trip_detail: TripDetailResponse, font_name: st
     canvas.restoreState()
 
 
+def _is_safe_remote_image_url(image_url: str) -> bool:
+    """Only allow public HTTP(S) image downloads during PDF export."""
+    try:
+        parsed = urlparse(image_url)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+
+    hostname = parsed.hostname.strip().rstrip(".")
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(hostname, None)}
+    except socket.gaierror:
+        return False
+
+    if not addresses:
+        return False
+    for address in addresses:
+        try:
+            ip_address = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        if not ip_address.is_global:
+            return False
+    return True
+
+
 def _load_pdf_image(image_url: str, max_width: float, max_height: float):
     """下载景点图片并转换成 ReportLab 可渲染对象，失败时返回 None。"""
     from reportlab.platypus import Image
 
-    if not image_url:
+    if not image_url or not _is_safe_remote_image_url(image_url):
         return None
 
     try:

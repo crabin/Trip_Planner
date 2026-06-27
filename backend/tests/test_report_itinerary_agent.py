@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.agents.report_itinerary_agent import agent
+from app.agents.report_itinerary_agent.prompts import build_consolidation_prompt
 from app.agents.tools.transport_tool import TransportToolResult
 from app.agents.report_itinerary_agent.state import (
     ChunkExtraction,
@@ -114,6 +115,38 @@ def test_luoyang_and_beijing_reports_keep_every_daily_heading() -> None:
     assert len(beijing_days) == 7
     assert any("睡到自然醒 + 补漏 + 返程" in section.title for section in luoyang_days)
     assert any("D7" in section.title for section in beijing_days)
+
+
+def test_report_extraction_prompts_include_output_json_schema_blocks() -> None:
+    section = agent._ReportExtractionSection(
+        "chunk-1",
+        "chunk",
+        "D1",
+        "## D1\n- 抵达酒店",
+        ("D1",),
+        1,
+    )
+
+    batch_prompt = agent.build_chunk_batch_prompt(
+        sections=[section],
+        destination="北京",
+        title="北京旅行攻略",
+    )
+    consolidation_prompt = build_consolidation_prompt(
+        extractions=[ChunkExtraction(chunk_id="chunk-1")],
+        destination="北京",
+        title="北京旅行攻略",
+        start_date="2026-06-28",
+        end_date="2026-06-30",
+    )
+
+    for prompt in (batch_prompt, consolidation_prompt):
+        assert "<OUTPUT JSON SCHEMA>" in prompt
+        assert "</OUTPUT JSON SCHEMA>" in prompt
+        assert '"type": "object"' in prompt
+
+    assert '"extractions"' in batch_prompt
+    assert '"days"' in consolidation_prompt
 
 
 def test_chunk_batch_retries_once_then_rejects_missing_chunk() -> None:

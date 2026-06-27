@@ -102,10 +102,14 @@ function parseSseEvent(chunk: string): ChatbotStreamEvent | null {
     return null;
   }
 
-  return {
-    event: eventLine.slice(6).trim(),
-    data: JSON.parse(dataLines.join("\n")),
-  } as ChatbotStreamEvent;
+  try {
+    return {
+      event: eventLine.slice(6).trim(),
+      data: JSON.parse(dataLines.join("\n")),
+    } as ChatbotStreamEvent;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveTrip(itinerary: Itinerary): Promise<TripSaveResponse> {

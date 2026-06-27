@@ -166,6 +166,7 @@ class RealtimeQueryRouter:
                 train_result = search_train_tickets_for_agent(
                     request.message,
                     search_query=route.search_query,
+                    llm=self.llm,
                 )
                 if train_result.available:
                     answer = train_result.answer

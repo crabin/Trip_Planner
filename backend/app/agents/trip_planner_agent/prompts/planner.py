@@ -1,16 +1,29 @@
 """Trip-planning prompt templates."""
 
+import json
+
 from app.models.schemas import TripRequest
+from app.agents.trip_planner_agent.state import PlannerDraft
 
 
-SYSTEM_PROMPT = (
-    "你是一名旅行规划助手。"
-    "请用中文生成简洁的结构化旅行草稿。"
-    "需要遵守用户给出的目的地、预算、节奏和本地攻略上下文。"
-    "只能使用与用户目的地直接相关的攻略信息；如果上下文中出现其他城市、其他目的地或无关景点，必须忽略。"
-    "你必须只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。"
-    "如果额外备注包含看日落、不想早起、少辣或拍照等明确诉求，要落实到具体某一天。"
-)
+PLANNER_DRAFT_OUTPUT_SCHEMA = PlannerDraft.model_json_schema()
+
+
+def _build_planner_system_prompt(output_schema_: dict = PLANNER_DRAFT_OUTPUT_SCHEMA) -> str:
+    return (
+        "你是一名旅行规划助手。"
+        "请用中文生成简洁的结构化旅行草稿。"
+        "需要遵守用户给出的目的地、预算、节奏和本地攻略上下文。"
+        "只能使用与用户目的地直接相关的攻略信息；如果上下文中出现其他城市、其他目的地或无关景点，必须忽略。"
+        "如果额外备注包含看日落、不想早起、少辣或拍照等明确诉求，要落实到具体某一天。\n\n"
+        "只返回一个符合 schema 的 JSON 对象，不要 Markdown，不要解释，不要追加文字。\n\n"
+        "<OUTPUT JSON SCHEMA>\n"
+        f"{json.dumps(output_schema_, indent=2, ensure_ascii=False)}\n"
+        "</OUTPUT JSON SCHEMA>"
+    )
+
+
+SYSTEM_PROMPT = _build_planner_system_prompt()
 
 
 def build_planner_messages(
@@ -41,23 +54,6 @@ def build_planner_messages(
 2. 每天只给一个主要景点、一个餐饮建议和一条当天备注。
 3. day_index 必须从 1 到 {day_count}，且只能引用【{request.destination}】的信息。
 4. 明确的额外备注必须在 days 中体现；轻松节奏应避免过满或过早出发。
-5. 只返回 JSON 对象。
-
-JSON 结构示例：
-{{
-  "summary": "整体概述",
-  "tips": ["提示1", "提示2"],
-  "days": [
-    {{
-      "day_index": 1,
-      "theme": "当天主题",
-      "spot_name": "主要景点",
-      "spot_description": "景点推荐理由",
-      "meal_name": "餐饮名称",
-      "meal_notes": "餐饮说明",
-      "daily_note": "当天备注"
-    }}
-  ]
-}}
+5. 只返回符合系统消息 schema 的 JSON 对象。
 """
     return [("system", SYSTEM_PROMPT), ("human", human_prompt)]

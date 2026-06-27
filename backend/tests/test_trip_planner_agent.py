@@ -11,6 +11,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import app.agents.trip_planner_agent as trip_planner_agent  # noqa: E402
+from app.agents.trip_planner_agent.prompts.day_editor import SYSTEM_PROMPT as DAY_EDIT_SYSTEM_PROMPT  # noqa: E402
+from app.agents.trip_planner_agent.prompts.planner import SYSTEM_PROMPT as PLANNER_SYSTEM_PROMPT  # noqa: E402
 from app.agents.tools.transport_tool import TransportToolResult  # noqa: E402
 from app.services.transport_query_service import TrainTicket  # noqa: E402
 from app.models.schemas import (  # noqa: E402
@@ -22,6 +24,16 @@ from app.models.schemas import (  # noqa: E402
     TripEditRequest,
     TripRequest,
 )
+
+
+def test_trip_planner_json_output_prompts_use_output_schema_blocks() -> None:
+    for prompt in (PLANNER_SYSTEM_PROMPT, DAY_EDIT_SYSTEM_PROMPT):
+        assert "<OUTPUT JSON SCHEMA>" in prompt
+        assert "</OUTPUT JSON SCHEMA>" in prompt
+        assert '"type": "object"' in prompt
+
+    assert '"days"' in PLANNER_SYSTEM_PROMPT
+    assert '"spot_name"' in DAY_EDIT_SYSTEM_PROMPT
 
 
 def build_trip_request() -> TripRequest:

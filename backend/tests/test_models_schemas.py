@@ -160,6 +160,14 @@ def test_chatbot_schemas_accept_traveler_profile_and_new_intents() -> None:
     assert response.profile.food_preferences == ["少辣", "咖啡"]
 
 
+def test_chatbot_request_rejects_excessive_history() -> None:
+    with pytest.raises(ValidationError):
+        ChatbotMessageRequest(
+            message="帮我看看行程",
+            history=[{"role": "user", "content": "你好"} for _ in range(21)],
+        )
+
+
 def test_trip_request_rejects_invalid_deep_planning_settings() -> None:
     with pytest.raises(ValidationError):
         TripRequest(
@@ -202,6 +210,29 @@ def test_trip_request_rejects_end_date_before_start_date() -> None:
             end_date="2026-04-10",
             travelers=2,
             budget=3200,
+        )
+
+
+def test_trip_request_rejects_overlong_duration() -> None:
+    with pytest.raises(ValidationError):
+        TripRequest(
+            destination="大理",
+            start_date="2026-04-10",
+            end_date="2026-05-20",
+            travelers=2,
+            budget=3200,
+        )
+
+
+def test_trip_request_rejects_overlong_notes() -> None:
+    with pytest.raises(ValidationError):
+        TripRequest(
+            destination="大理",
+            start_date="2026-04-10",
+            end_date="2026-04-12",
+            travelers=2,
+            budget=3200,
+            special_notes="想" * 2001,
         )
 
 

@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from app.agents.chatbot_agent import agent as chatbot_agent
 from app.agents.chatbot_agent.agent import ChatbotAgent
+from app.agents.chatbot_agent.prompts.intent import INTENT_CLASSIFIER_SYSTEM_PROMPT
+from app.agents.chatbot_agent.prompts.realtime import REALTIME_QUERY_ROUTER_SYSTEM_PROMPT
 from app.agents.chatbot_agent.state import IntentDecision
 from app.agents.chatbot_agent.utils import build_research_steps
 from app.api.main import app
@@ -22,6 +24,17 @@ from app.models.schemas import (
 from app.agents.tools.transport_tool import TransportToolResult
 from app.integrations.web_search import SearchResult, TavilyResponse
 from app.services.transport_query_service import TrainTicket
+
+
+def test_json_output_prompts_use_output_schema_blocks() -> None:
+    for prompt in (INTENT_CLASSIFIER_SYSTEM_PROMPT, REALTIME_QUERY_ROUTER_SYSTEM_PROMPT):
+        assert "<OUTPUT JSON SCHEMA>" in prompt
+        assert "</OUTPUT JSON SCHEMA>" in prompt
+        assert '"type": "object"' in prompt
+        assert '"additionalProperties": false' in prompt
+
+    assert '"intent"' in INTENT_CLASSIFIER_SYSTEM_PROMPT
+    assert '"query_kind"' in REALTIME_QUERY_ROUTER_SYSTEM_PROMPT
 
 
 class FakeResponse:
@@ -508,9 +521,14 @@ def test_realtime_transport_answer_uses_12306_mcp_when_available(monkeypatch) ->
 
     captured = {}
 
-    def fake_transport_tool(message: str, search_query: str = "") -> TransportToolResult:
+    def fake_transport_tool(
+        message: str,
+        search_query: str = "",
+        llm=None,
+    ) -> TransportToolResult:
         captured["message"] = message
         captured["search_query"] = search_query
+        captured["llm"] = llm
         return TransportToolResult(
             available=True,
             answer=(
@@ -552,6 +570,7 @@ def test_realtime_transport_answer_uses_12306_mcp_when_available(monkeypatch) ->
     assert captured == {
         "message": "高铁，上海到杭州，明天上午，接受直达优先，不中转",
         "search_query": "上海到杭州 明天上午 高铁 直达 不中转",
+        "llm": fake_llm,
     }
 
 
@@ -568,7 +587,7 @@ def test_realtime_transport_falls_back_to_web_search_when_12306_fails(monkeypatc
     monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
     monkeypatch.setattr(
         "app.agents.chatbot_agent.nodes.realtime_query.search_train_tickets_for_agent",
-        lambda message, search_query="": TransportToolResult(
+        lambda message, search_query="", llm=None: TransportToolResult(
             available=False,
             answer="",
             source_notes=[],

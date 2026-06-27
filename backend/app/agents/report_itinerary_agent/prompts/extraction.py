@@ -4,6 +4,8 @@ import json
 
 from app.agents.report_itinerary_agent.state import (
     ChunkExtraction,
+    ChunkExtractionBatch,
+    ExtractedReport,
     ReportExtractionSection,
 )
 
@@ -13,6 +15,14 @@ SYSTEM_PROMPT = (
     "不补写、不猜测、不把住宿晚数或候选清单当作逐日行程。"
     "所有未知时间、费用、地点和交通字段必须留空。"
 )
+
+
+def _output_json_schema_block(schema: dict) -> str:
+    return (
+        "<OUTPUT JSON SCHEMA>\n"
+        f"{json.dumps(schema, indent=2, ensure_ascii=False)}\n"
+        "</OUTPUT JSON SCHEMA>"
+    )
 
 
 def build_chunk_batch_prompt(
@@ -41,6 +51,8 @@ def build_chunk_batch_prompt(
 6. overview_facts 使用稳定英文 key，优先采用 date_range、travelers、origin、pace、preferences、intercity_transport、local_transport、lodging、budget_scope、assumptions、confirmations。
 7. map_query 应包含目的地和地点/区域，但不得创造原文没有的具体商户。
 8. 保留原文中的完整日程说明，不要把它压缩成一句占位文案。
+
+{_output_json_schema_block(ChunkExtractionBatch.model_json_schema())}
 
 目的地：{destination}
 Report 标题：{title}
@@ -86,6 +98,8 @@ def build_consolidation_prompt(
 7. 未知费用保持 null；total_budget 只使用 Report 明确给出的总预算。
 8. 每个 day.source_chunk_ids 保留所有贡献该日信息的 chunk_id。
 9. 输入中省略了无结果的 chunk 和部分冗余字段；不要因此认为原 Report 缺少这些 chunk。
+
+{_output_json_schema_block(ExtractedReport.model_json_schema())}
 
 目的地：{destination}
 Report 标题：{title}

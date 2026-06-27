@@ -2,11 +2,93 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+import json
 import re
 from typing import Any
 
 from app import config
 from app.integrations.mcp_12306 import Mcp12306Error, Remote12306McpClient
+
+
+TRAIN_TICKET_QUERY_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "date",
+        "from_station",
+        "to_station",
+        "train_filter_flags",
+        "earliest_start_time",
+        "latest_start_time",
+        "direct_only",
+        "seat_preference",
+    ],
+    "properties": {
+        "date": {
+            "type": "string",
+            "description": "出行日期，格式 YYYY-MM-DD；相对日期必须基于 current_date 计算。",
+            "pattern": "^20\\d{2}-\\d{2}-\\d{2}$",
+        },
+        "from_station": {
+            "type": "string",
+            "description": "中文出发城市或车站名，去掉“从/查询/帮我查”等前缀。",
+            "minLength": 1,
+        },
+        "to_station": {
+            "type": "string",
+            "description": "中文到达城市或车站名。",
+            "minLength": 1,
+        },
+        "train_filter_flags": {
+            "type": "string",
+            "description": "车次类型过滤；高铁/G字头为 G，动车/D字头为 D；不确定时默认 G。",
+            "enum": ["G", "D"],
+        },
+        "earliest_start_time": {
+            "type": "integer",
+            "description": "最早出发小时，0 到 24 的整数。",
+            "minimum": 0,
+            "maximum": 24,
+        },
+        "latest_start_time": {
+            "type": "integer",
+            "description": "最晚出发小时，0 到 24 的整数，必须大于 earliest_start_time。",
+            "minimum": 0,
+            "maximum": 24,
+        },
+        "direct_only": {
+            "type": "boolean",
+            "description": "用户说直达、不中转、不接受中转、不要中转时为 true；明确接受中转时为 false。",
+        },
+        "seat_preference": {
+            "type": "string",
+            "description": "用户指定席别原文，例如 商务座、一等座、二等座；没有则为空字符串。",
+        },
+    },
+}
+
+
+def _build_train_ticket_query_parser_system_prompt(
+    output_schema_: dict[str, Any] = TRAIN_TICKET_QUERY_OUTPUT_SCHEMA,
+) -> str:
+    return (
+        "你是中国铁路 12306 查询参数解析器。\n\n"
+        "任务：把用户的自然语言铁路查询转换为 12306 MCP get-tickets 可用参数。\n\n"
+        "只返回一个符合 schema 的 JSON 对象，不要 Markdown，不要解释，不要追加文字。\n\n"
+        "<OUTPUT JSON SCHEMA>\n"
+        f"{json.dumps(output_schema_, indent=2, ensure_ascii=False)}\n"
+        "</OUTPUT JSON SCHEMA>\n\n"
+        "时间窗规则：\n"
+        "- 上午/早上/早晨 => 6 到 12\n"
+        "- 中午 => 11 到 14\n"
+        "- 下午 => 12 到 18\n"
+        "- 晚上/夜里 => 18 到 24\n"
+        "- 明确小时范围按用户给出的范围解析，并把小时限制在 0 到 24。\n\n"
+        "如果缺少路线、日期或时间窗，也必须尽力基于原文和 current_date 返回 JSON，不要提问。"
+    )
+
+
+TRAIN_TICKET_QUERY_PARSER_SYSTEM_PROMPT = _build_train_ticket_query_parser_system_prompt()
 
 
 @dataclass(frozen=True)
@@ -38,6 +120,7 @@ class TrainTicketQuery:
     earliest_start_time: int = 6
     latest_start_time: int = 12
     direct_only: bool = True
+    seat_preference: str = ""
     max_results: int = 20
 
 
@@ -57,6 +140,7 @@ def query_realtime_train_tickets(
     message: str,
     *,
     search_query: str = "",
+    llm: Any | None = None,
     client: Remote12306McpClient | None = None,
 ) -> TrainTicketQueryResult:
     if not config.ENABLE_12306_MCP:
@@ -64,6 +148,7 @@ def query_realtime_train_tickets(
     query = parse_train_ticket_query(
         f"{message} {search_query}".strip(),
         max_results=config.MCP_12306_MAX_RESULTS,
+        llm=llm,
     )
     resolved_client = client or Remote12306McpClient(
         url=config.MCP_12306_URL,
@@ -95,7 +180,20 @@ def query_realtime_train_tickets(
     return TrainTicketQueryResult(query=query, tickets=tickets)
 
 
-def parse_train_ticket_query(message: str, *, max_results: int = 20) -> TrainTicketQuery:
+def parse_train_ticket_query(
+    message: str,
+    *,
+    max_results: int = 20,
+    llm: Any | None = None,
+) -> TrainTicketQuery:
+    if llm is not None:
+        llm_query = _parse_train_ticket_query_with_llm(
+            message,
+            max_results=max_results,
+            llm=llm,
+        )
+        if llm_query is not None:
+            return llm_query
     target_date = _extract_date(message)
     earliest, latest = _extract_time_window(message)
     from_station, to_station = _extract_route(message)
@@ -107,8 +205,76 @@ def parse_train_ticket_query(message: str, *, max_results: int = 20) -> TrainTic
         earliest_start_time=earliest,
         latest_start_time=latest,
         direct_only=_is_direct_only(message),
+        seat_preference=_extract_seat_preference(message),
         max_results=max_results,
     )
+
+
+def _parse_train_ticket_query_with_llm(
+    message: str,
+    *,
+    max_results: int,
+    llm: Any,
+) -> TrainTicketQuery | None:
+    try:
+        response = llm.invoke(
+            [
+                ("system", TRAIN_TICKET_QUERY_PARSER_SYSTEM_PROMPT),
+                (
+                    "human",
+                    json.dumps(
+                        {
+                            "current_date": date.today().isoformat(),
+                            "message": message,
+                        },
+                        ensure_ascii=False,
+                    ),
+                ),
+            ]
+        )
+        raw_text = _response_content_to_text(response)
+        json_text = _extract_json_object(raw_text)
+        if json_text is None:
+            return None
+        payload = json.loads(json_text)
+        if not isinstance(payload, dict):
+            return None
+        return _train_ticket_query_from_llm_payload(payload, max_results=max_results)
+    except Exception:
+        return None
+
+
+def _train_ticket_query_from_llm_payload(
+    payload: dict[str, Any],
+    *,
+    max_results: int,
+) -> TrainTicketQuery | None:
+    try:
+        parsed_date = datetime.strptime(str(payload.get("date") or ""), "%Y-%m-%d").date()
+        from_station = _clean_station(str(payload.get("from_station") or ""))
+        to_station = _clean_station(str(payload.get("to_station") or ""))
+        if not from_station or not to_station:
+            return None
+        earliest = _clamp_hour(int(payload.get("earliest_start_time")))
+        latest = _clamp_hour(int(payload.get("latest_start_time")))
+        if latest <= earliest:
+            latest = _clamp_hour(earliest + 1)
+        train_filter_flags = str(payload.get("train_filter_flags") or "G").upper()
+        if train_filter_flags not in {"G", "D"}:
+            train_filter_flags = "G"
+        return TrainTicketQuery(
+            date=parsed_date.isoformat(),
+            from_station=from_station,
+            to_station=to_station,
+            train_filter_flags=train_filter_flags,
+            earliest_start_time=earliest,
+            latest_start_time=latest,
+            direct_only=_to_bool(payload.get("direct_only", True)),
+            seat_preference=str(payload.get("seat_preference") or "").strip(),
+            max_results=max_results,
+        )
+    except (TypeError, ValueError):
+        return None
 
 
 def format_train_ticket_answer(result: TrainTicketQueryResult) -> str:
@@ -120,10 +286,13 @@ def format_train_ticket_answer(result: TrainTicketQueryResult) -> str:
             f"{result.query.to_station}的直达铁路余票。以下为 12306 MCP 返回的实时结果摘要。"
         ),
         "",
-        "## 推荐直达车次",
     ]
+    if result.query.seat_preference:
+        lines.extend([f"席别偏好：{result.query.seat_preference}", ""])
+    lines.append("## 推荐直达车次")
     for ticket in result.tickets:
-        seat_text = "；".join(_format_seat(seat) for seat in ticket.seats[:4]) or "席别未返回"
+        seats = _sort_preferred_seats(ticket.seats, result.query.seat_preference)
+        seat_text = "；".join(_format_seat(seat) for seat in seats[:4]) or "席别未返回"
         flags = f"（{'、'.join(ticket.flags)}）" if ticket.flags else ""
         lines.append(
             f"- {ticket.train_code} {ticket.from_station} {ticket.start_time} -> "
@@ -157,6 +326,35 @@ def _extract_date(message: str) -> date:
     if "明天" in message or "明日" in message:
         return today + timedelta(days=1)
     return today
+
+
+def _response_content_to_text(response: object) -> str:
+    content = getattr(response, "content", "")
+    if isinstance(content, list):
+        content = "".join(
+            item.get("text", "") if isinstance(item, dict) else str(item)
+            for item in content
+        )
+    return str(content)
+
+
+def _extract_json_object(raw_text: str) -> str | None:
+    text = raw_text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+
+    start_index = text.find("{")
+    end_index = text.rfind("}")
+    if start_index == -1 or end_index == -1 or end_index <= start_index:
+        return None
+    return text[start_index : end_index + 1]
 
 
 def _extract_time_window(message: str) -> tuple[int, int]:
@@ -197,6 +395,13 @@ def _extract_train_filter_flags(message: str) -> str:
     return "G"
 
 
+def _extract_seat_preference(message: str) -> str:
+    for seat_name in ("商务座", "特等座", "一等座", "二等座", "软卧", "硬卧", "软座", "硬座", "无座"):
+        if seat_name in message:
+            return seat_name
+    return ""
+
+
 def _is_direct_only(message: str) -> bool:
     return any(word in message for word in ("直达", "不中转", "不接受中转", "不要中转"))
 
@@ -230,6 +435,12 @@ def _format_seat(seat: TrainSeat) -> str:
     return f"{seat.seat_name}{seat.availability}，{price}"
 
 
+def _sort_preferred_seats(seats: list[TrainSeat], seat_preference: str) -> list[TrainSeat]:
+    if not seat_preference:
+        return seats
+    return sorted(seats, key=lambda seat: 0 if seat.seat_name == seat_preference else 1)
+
+
 def _clean_station(value: str) -> str:
     return re.sub(r"^(从|查|查询|帮我查|我想查)", "", value).strip(" ，,。")
 
@@ -245,3 +456,15 @@ def _to_float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"false", "0", "no", "否", "不", "不接受"}:
+            return False
+        if normalized in {"true", "1", "yes", "是", "接受"}:
+            return True
+    return bool(value)

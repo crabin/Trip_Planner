@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.services.transport_query_service import (
     TrainTicket,
@@ -22,9 +23,14 @@ class TransportToolResult:
 def search_train_tickets_for_agent(
     message: str,
     search_query: str = "",
+    llm: Any | None = None,
 ) -> TransportToolResult:
     try:
-        result = query_realtime_train_tickets(message, search_query=search_query)
+        result = query_realtime_train_tickets(
+            message,
+            search_query=search_query,
+            llm=llm if llm is not None else _build_llm_or_none(),
+        )
     except TransportQueryUnavailable as exc:
         return TransportToolResult(
             available=False,
@@ -51,3 +57,12 @@ def search_train_tickets_for_agent(
         ],
         tickets=result.tickets,
     )
+
+
+def _build_llm_or_none() -> Any | None:
+    try:
+        from app.agents.trip_planner_agent.llms import build_chat_llm
+
+        return build_chat_llm()
+    except Exception:
+        return None
