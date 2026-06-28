@@ -143,7 +143,21 @@ def test_catalog_loads_valid_sources_and_tolerates_corrupt_state(report_dir) -> 
                                 "score": 0.95,
                                 "published_date": "2026-06-20",
                             }
-                        ]
+                        ],
+                        "trace_steps": [
+                            {
+                                "step_id": "p1-initial",
+                                "phase": "initial",
+                                "section_title": "交通与住宿",
+                                "search_query": "汕头交通",
+                                "search_tool": "basic_search_news",
+                                "reasoning": "核查交通来源",
+                                "summary_after": "已核查交通来源",
+                                "evidence_count": 1,
+                                "prompt_chars": 800,
+                                "estimated_prompt_tokens": 600,
+                            }
+                        ],
                     },
                 }
             ],
@@ -162,7 +176,10 @@ def test_catalog_loads_valid_sources_and_tolerates_corrupt_state(report_dir) -> 
     xiamen = next(item for item in artifacts if item.destination == "厦门")
     assert shantou.dates == ("2026-07-02", "2026-07-06")
     assert shantou.document.sources[0].section_title == "交通与住宿"
+    assert shantou.document.research_trace[0].step_id == "p1-initial"
+    assert shantou.document.research_trace[0].search_query == "汕头交通"
     assert xiamen.document.sources == []
+    assert xiamen.document.research_trace == []
     assert "Markdown fallback" in xiamen.document.markdown
 
 

@@ -25,7 +25,7 @@ class ChatbotAgent:
     ) -> None:
         self.llm = llm if llm is not None else build_chat_llm()
         self.intent_node = IntentClassificationNode(self.llm)
-        self.ask_node = AskNode()
+        self.ask_node = AskNode(self.llm)
         self.update_node = UpdateNode(edit_trip_itinerary)
         self.search_node = SearchNode(llm=self.llm, search_agency=search_agency)
         self.research_node = ResearchNode(llm=self.llm, search_agency=search_agency)

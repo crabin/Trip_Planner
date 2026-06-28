@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.agents.destination_intelligence_agent.state import Research, State
+from app.agents.destination_intelligence_agent.state import Research, ResearchTraceStep, State
 
 
 def test_research_adds_all_search_results() -> None:
@@ -44,8 +44,26 @@ def test_research_increments_reflection() -> None:
 
 def test_state_json_file_round_trip(tmp_path) -> None:
     state = State(query="2026年厦门旅行", report_title="厦门旅行攻略")
-    paragraph_index = state.add_paragraph("逐日行程", "规划每天的时间地点链")
+    paragraph_index = state.add_paragraph(
+        "逐日行程",
+        "规划每天的时间地点链",
+        requires_12306_mcp=True,
+    )
     state.paragraphs[paragraph_index].research.latest_summary = "D1 抵达厦门"
+    state.paragraphs[paragraph_index].research.trace_steps.append(
+        ResearchTraceStep(
+            step_id="p1-initial",
+            phase="initial",
+            section_title="逐日行程",
+            search_query="厦门 行程 官方",
+            search_tool="basic_search_news",
+            reasoning="核查官方信息",
+            summary_after="D1 抵达厦门",
+            evidence_count=1,
+            prompt_chars=1200,
+            estimated_prompt_tokens=900,
+        )
+    )
     state.paragraphs[paragraph_index].research.mark_completed()
     state.final_report = "# 厦门旅行攻略"
     state.mark_completed()
@@ -56,6 +74,29 @@ def test_state_json_file_round_trip(tmp_path) -> None:
 
     assert json.loads(state.to_json()) == state.to_dict()
     assert restored.to_dict() == state.to_dict()
+    assert restored.paragraphs[0].requires_12306_mcp is True
+    assert restored.paragraphs[0].research.trace_steps[0].step_id == "p1-initial"
+
+
+def test_state_from_legacy_json_defaults_trace_steps() -> None:
+    state = State.from_dict(
+        {
+            "query": "旧攻略",
+            "paragraphs": [
+                {
+                    "title": "交通",
+                    "content": "核查交通",
+                    "research": {
+                        "search_history": [],
+                        "latest_summary": "旧总结",
+                    },
+                }
+            ],
+        }
+    )
+
+    assert state.paragraphs[0].research.trace_steps == []
+    assert state.paragraphs[0].requires_12306_mcp is False
 
 
 def test_state_save_does_not_destroy_existing_file_when_serialization_fails(

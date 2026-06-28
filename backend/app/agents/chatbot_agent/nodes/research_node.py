@@ -5,7 +5,10 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any
 
+from loguru import logger
+
 from app.agents.trip_planner_agent.utils import response_content_to_text
+from app.config import LLM_TIMEOUT_SECONDS
 from app.integrations.web_search import FallbackWebSearchAgency, TavilyResponse
 from app.models.schemas import (
     ChatbotMessageRequest,
@@ -14,7 +17,7 @@ from app.models.schemas import (
     ChatbotSearchSource,
 )
 
-from ..prompts import RESEARCH_SUMMARY_SYSTEM_PROMPT
+from ..prompts import RESEARCH_COMPACT_SUMMARY_SYSTEM_PROMPT
 from ..state import IntentDecision
 from ..utils import (
     MAX_SEARCH_RESULTS,
@@ -23,7 +26,9 @@ from ..utils import (
     summarize_research_without_llm,
 )
 
-RESEARCH_SUMMARY_TIMEOUT_SECONDS = 20
+RESEARCH_SUMMARY_TIMEOUT_SECONDS = LLM_TIMEOUT_SECONDS
+SUMMARY_EVIDENCE_SOURCE_LIMIT = 2
+SUMMARY_EVIDENCE_CONTENT_LIMIT = 500
 
 
 class ResearchNode:
@@ -56,7 +61,7 @@ class ResearchNode:
     ) -> Iterator[dict[str, Any]]:
         steps = self._build_steps(request, decision)
         all_sources: list[ChatbotSearchSource] = []
-        yield {"event": "research_plan", "data": steps}
+        yield {"event": "research_plan", "data": list(steps)}
 
         for index, step in enumerate(steps):
             if step.query is None:
@@ -100,7 +105,23 @@ class ResearchNode:
             )
             yield {"event": "research_step", "data": steps[index]}
 
+        synthesis_step = ChatbotResearchStep(
+            id="synthesize",
+            title="整理最终回答",
+            status="running",
+            summary=build_synthesis_summary(decision),
+        )
+        steps.append(synthesis_step)
+        yield {"event": "research_step", "data": synthesis_step}
+
         reply = self._summarize_research(request, decision, steps)
+        steps[-1] = synthesis_step.model_copy(
+            update={
+                "status": "completed",
+                "summary": "已根据完成的查询结果整理最终建议。",
+            }
+        )
+        yield {"event": "research_step", "data": steps[-1]}
         yield {
             "event": "final",
             "data": ChatbotMessageResponse(
@@ -134,41 +155,62 @@ class ResearchNode:
         decision: IntentDecision,
         steps: list[ChatbotResearchStep],
     ) -> str:
-        if self.llm is not None:
-            try:
-                response = _invoke_with_timeout(
-                    self.llm,
-                    [
-                        ("system", RESEARCH_SUMMARY_SYSTEM_PROMPT),
-                        (
-                            "human",
-                            json.dumps(
-                                {
-                                    "question": request.message,
-                                    "intent": decision.intent,
-                                    "answer_strategy": decision.answer_strategy,
-                                    "generation_tasks": decision.generation_tasks,
-                                    "traveler_profile": request.profile.model_dump(),
-                                    "conversation_summary": request.conversation_summary,
-                                    "itinerary_destination": (
-                                        request.current_itinerary.destination
-                                        if request.current_itinerary is not None
-                                        else None
-                                    ),
-                                    "steps": [step.model_dump() for step in steps],
-                                },
-                                ensure_ascii=False,
-                            ),
-                        ),
-                    ],
-                )
-                text = response_content_to_text(response).strip()
-                if text:
-                    return text
-            except (Exception, TimeoutError):
-                pass
+        log_context = _research_summary_log_context(request)
+        if self.llm is None:
+            logger.warning(
+                "Research summary LLM is unavailable; using non-LLM fallback: {}",
+                log_context,
+            )
+            return summarize_research_without_llm(request, steps)
 
+        try:
+            response = _invoke_with_timeout(
+                self.llm,
+                [
+                    ("system", RESEARCH_COMPACT_SUMMARY_SYSTEM_PROMPT),
+                    (
+                        "human",
+                        json.dumps(
+                            build_compact_summary_payload(request, decision, steps),
+                            ensure_ascii=False,
+                        ),
+                    ),
+                ],
+            )
+            text = response_content_to_text(response).strip()
+            if text:
+                return text
+            logger.warning(
+                "Research summary LLM returned empty response: {}",
+                log_context,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Research summary LLM timed out after {} seconds; using non-LLM fallback: {}",
+                RESEARCH_SUMMARY_TIMEOUT_SECONDS,
+                log_context,
+            )
+            return summarize_research_without_llm(request, steps)
+        except Exception:
+            logger.exception(
+                "Research summary LLM failed: {}",
+                log_context,
+            )
+
+        logger.warning(
+            "Research summary LLM failed or returned empty response; using non-LLM fallback: {}",
+            log_context,
+        )
         return summarize_research_without_llm(request, steps)
+
+
+def _research_summary_log_context(request: ChatbotMessageRequest) -> dict[str, object]:
+    return {
+        "message_length": len(request.message),
+        "has_current_itinerary": request.current_itinerary is not None,
+        "history_count": len(request.history),
+        "has_conversation_summary": bool(request.conversation_summary),
+    }
 
 
 def _invoke_with_timeout(llm: Any, messages: list[tuple[str, str]]) -> Any:
@@ -178,3 +220,70 @@ def _invoke_with_timeout(llm: Any, messages: list[tuple[str, str]]) -> Any:
         return future.result(timeout=RESEARCH_SUMMARY_TIMEOUT_SECONDS)
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
+
+
+def build_synthesis_summary(decision: IntentDecision) -> str:
+    if decision.generation_tasks:
+        return "；".join(decision.generation_tasks[:3])
+    if decision.answer_strategy:
+        return decision.answer_strategy
+    return "结合已完成的查询记录，生成贴合用户问题的回答。"
+
+
+def build_source_evidence(steps: list[ChatbotResearchStep]) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for step in steps:
+        if not step.query or step.status != "completed":
+            continue
+        evidence.append(
+            {
+                "title": step.title,
+                "query": step.query,
+                "summary": step.summary,
+                "sources": [
+                    {
+                        "title": source.title,
+                        "url": source.url,
+                        "content": _truncate_text(source.content, SUMMARY_EVIDENCE_CONTENT_LIMIT),
+                        "published_date": source.published_date,
+                    }
+                    for source in step.sources[:SUMMARY_EVIDENCE_SOURCE_LIMIT]
+                ],
+            }
+        )
+    return evidence
+
+
+def build_compact_summary_payload(
+    request: ChatbotMessageRequest,
+    decision: IntentDecision,
+    steps: list[ChatbotResearchStep],
+) -> dict[str, Any]:
+    return {
+        "question": request.message,
+        "intent": decision.intent,
+        "answer_strategy": decision.answer_strategy,
+        "generation_tasks": decision.generation_tasks,
+        "traveler_profile": request.profile.model_dump(),
+        "conversation_summary": request.conversation_summary,
+        "itinerary_destination": (
+            request.current_itinerary.destination
+            if request.current_itinerary is not None
+            else None
+        ),
+        "source_evidence": [
+            {
+                "query": item["query"],
+                "summary": item["summary"],
+                "sources": item["sources"],
+            }
+            for item in build_source_evidence(steps)
+        ],
+    }
+
+
+def _truncate_text(value: str, max_length: int) -> str:
+    text = " ".join(value.split())
+    if len(text) <= max_length:
+        return text
+    return f"{text[:max_length].rstrip()}..."

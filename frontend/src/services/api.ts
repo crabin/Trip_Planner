@@ -4,7 +4,9 @@ import type {
   ChatbotMessagePayload,
   ChatbotMessageResponse,
   ChatbotStreamEvent,
+  DestinationSpanCheckResponse,
   Itinerary,
+  LocationSuggestionResponse,
   TripDetailResponse,
   TripEditPayload,
   TripListResponse,
@@ -102,10 +104,14 @@ function parseSseEvent(chunk: string): ChatbotStreamEvent | null {
     return null;
   }
 
-  return {
-    event: eventLine.slice(6).trim(),
-    data: JSON.parse(dataLines.join("\n")),
-  } as ChatbotStreamEvent;
+  try {
+    return {
+      event: eventLine.slice(6).trim(),
+      data: JSON.parse(dataLines.join("\n")),
+    } as ChatbotStreamEvent;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveTrip(itinerary: Itinerary): Promise<TripSaveResponse> {
@@ -173,6 +179,25 @@ export async function exportTripPdf(itinerary: Itinerary): Promise<Blob> {
 export async function fetchWeatherForecast(city: string): Promise<WeatherForecastResponse> {
   const response = await api.get<WeatherForecastResponse>("/weather/forecast", {
     params: { city },
+  });
+  return response.data;
+}
+
+export async function fetchLocationSuggestions(
+  keyword: string,
+  limit = 10
+): Promise<LocationSuggestionResponse> {
+  const response = await api.get<LocationSuggestionResponse>("/location/suggestions", {
+    params: { keyword, limit },
+  });
+  return response.data;
+}
+
+export async function checkDestinationSpan(
+  destinations: string[]
+): Promise<DestinationSpanCheckResponse> {
+  const response = await api.post<DestinationSpanCheckResponse>("/location/span-check", {
+    destinations,
   });
   return response.data;
 }

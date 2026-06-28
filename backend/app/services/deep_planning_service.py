@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models.schemas import DeepPlanDocument, DeepPlanSource, TripRequest
+from app.models.schemas import (
+    DeepPlanDocument,
+    DeepPlanResearchTraceStep,
+    DeepPlanSource,
+    TripRequest,
+)
 from app.services.storage_service import (
     complete_deep_plan,
     fail_deep_plan,
@@ -38,14 +43,42 @@ def _collect_sources(agent: Any) -> list[DeepPlanSource]:
                 DeepPlanSource(
                     section_title=paragraph.title,
                     query=search.query,
+                    step_id=getattr(search, "step_id", ""),
                     title=search.title,
                     url=search.url,
                     content=search.content,
+                    raw_content=getattr(search, "raw_content", None),
+                    used_in_summary=bool(getattr(search, "used_in_summary", False)),
                     score=search.score,
                     published_date=search.published_date,
                 )
             )
     return sources
+
+
+def _collect_research_trace(agent: Any) -> list[DeepPlanResearchTraceStep]:
+    trace: list[DeepPlanResearchTraceStep] = []
+    for paragraph in agent.state.paragraphs:
+        research = getattr(paragraph, "research", None)
+        for step in getattr(research, "trace_steps", []) or []:
+            trace.append(
+                DeepPlanResearchTraceStep(
+                    step_id=getattr(step, "step_id", ""),
+                    phase=getattr(step, "phase", ""),
+                    section_title=getattr(step, "section_title", "") or paragraph.title,
+                    search_query=getattr(step, "search_query", ""),
+                    search_tool=getattr(step, "search_tool", ""),
+                    reasoning=getattr(step, "reasoning", ""),
+                    summary_before=getattr(step, "summary_before", ""),
+                    summary_after=getattr(step, "summary_after", ""),
+                    evidence_count=getattr(step, "evidence_count", 0),
+                    prompt_chars=getattr(step, "prompt_chars", 0),
+                    estimated_prompt_tokens=getattr(step, "estimated_prompt_tokens", 0),
+                    fallback_reason=getattr(step, "fallback_reason", ""),
+                    timestamp=getattr(step, "timestamp", ""),
+                )
+            )
+    return trace
 
 
 def run_deep_planning_job(trip_id: str, request: TripRequest) -> None:
@@ -74,7 +107,11 @@ def run_deep_planning_job(trip_id: str, request: TripRequest) -> None:
         )
         complete_deep_plan(
             trip_id,
-            DeepPlanDocument(markdown=markdown, sources=_collect_sources(agent)),
+            DeepPlanDocument(
+                markdown=markdown,
+                sources=_collect_sources(agent),
+                research_trace=_collect_research_trace(agent),
+            ),
         )
     except Exception as exc:
         fail_deep_plan(trip_id, str(exc) or exc.__class__.__name__)

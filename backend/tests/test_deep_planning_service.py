@@ -68,7 +68,25 @@ def test_background_job_persists_markdown_sources_and_progress(monkeypatch) -> N
                 paragraphs=[
                     SimpleNamespace(
                         title="交通与住宿",
-                        research=SimpleNamespace(search_history=[source]),
+                        research=SimpleNamespace(
+                            search_history=[source],
+                            trace_steps=[
+                                SimpleNamespace(
+                                    step_id="p1-initial",
+                                    phase="initial",
+                                    section_title="交通与住宿",
+                                    search_query="京都交通",
+                                    search_tool="basic_search_news",
+                                    reasoning="核查交通",
+                                    summary_before="",
+                                    summary_after="已核查交通信息",
+                                    evidence_count=1,
+                                    prompt_chars=500,
+                                    estimated_prompt_tokens=375,
+                                    fallback_reason="",
+                                )
+                            ],
+                        ),
                     )
                 ]
             )
@@ -115,3 +133,5 @@ def test_background_job_persists_markdown_sources_and_progress(monkeypatch) -> N
     assert len(completed) == 1
     assert completed[0].markdown.startswith("# 京都")
     assert completed[0].sources[0].title == "京都市交通局"
+    assert completed[0].research_trace[0].step_id == "p1-initial"
+    assert completed[0].research_trace[0].evidence_count == 1

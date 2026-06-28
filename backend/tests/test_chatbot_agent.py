@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from app.agents.chatbot_agent import agent as chatbot_agent
 from app.agents.chatbot_agent.agent import ChatbotAgent
+from app.agents.chatbot_agent.prompts.intent import INTENT_CLASSIFIER_SYSTEM_PROMPT
+from app.agents.chatbot_agent.prompts.realtime import REALTIME_QUERY_ROUTER_SYSTEM_PROMPT
 from app.agents.chatbot_agent.state import IntentDecision
 from app.agents.chatbot_agent.utils import build_research_steps
 from app.api.main import app
@@ -19,7 +21,20 @@ from app.models.schemas import (
     MealItem,
     SpotItem,
 )
+from app.agents.tools.transport_tool import TransportToolResult
 from app.integrations.web_search import SearchResult, TavilyResponse
+from app.services.transport_query_service import TrainTicket
+
+
+def test_json_output_prompts_use_output_schema_blocks() -> None:
+    for prompt in (INTENT_CLASSIFIER_SYSTEM_PROMPT, REALTIME_QUERY_ROUTER_SYSTEM_PROMPT):
+        assert "<OUTPUT JSON SCHEMA>" in prompt
+        assert "</OUTPUT JSON SCHEMA>" in prompt
+        assert '"type": "object"' in prompt
+        assert '"additionalProperties": false' in prompt
+
+    assert '"intent"' in INTENT_CLASSIFIER_SYSTEM_PROMPT
+    assert '"query_kind"' in REALTIME_QUERY_ROUTER_SYSTEM_PROMPT
 
 
 class FakeResponse:
@@ -50,7 +65,9 @@ class FakeChatLLM:
         self.summary = summary
         self.intent_invocations = 0
         self.intent_payload = {}
+        self.ask_payload = {}
         self.summary_payload = {}
+        self.realtime_summary_payload = {}
 
     def invoke(self, messages):
         system = messages[0][1]
@@ -60,6 +77,26 @@ class FakeChatLLM:
                     '{"query_kind":"%s","search_query":"%s","reason":"测试路由"}'
                     % (self.route_kind, self.route_query or "")
                 )
+            )
+        if "实时网页搜索证据" in system:
+            self.realtime_summary_payload = json.loads(messages[1][1])
+            if self.summary:
+                return FakeResponse(self.summary)
+            source = (self.realtime_summary_payload.get("sources") or [{}])[0]
+            source_title = source.get("title") or "测试来源"
+            source_url = source.get("url") or "https://example.com"
+            if not self.realtime_summary_payload.get("reliability", {}).get("has_reliable_source"):
+                return FakeResponse(
+                    "## 当前线索\n"
+                    f"{source_title} 提供了可参考线索，但暂时不足以确认实时状态。\n\n"
+                    "## 来源\n"
+                    f"- [{source_title}]({source_url})"
+                )
+            return FakeResponse(
+                "## 明确结论\n"
+                f"{source_title} 显示有可参考信息，但涉及实时状态仍需以官方渠道复核。\n\n"
+                "## 来源\n"
+                f"- [{source_title}]({source_url})"
             )
         if "意图分类器" in system:
             self.intent_invocations += 1
@@ -82,6 +119,16 @@ class FakeChatLLM:
                     tasks,
                 )
             )
+        if "普通问答生成器" in system:
+            self.ask_payload = json.loads(messages[1][1])
+            message = self.ask_payload["message"]
+            if "你是谁" in message:
+                return FakeResponse("我是智旅顾问，可以帮你规划、调整、查询和比较旅行方案。")
+            if "查找内容" in message or "搜索" in message:
+                return FakeResponse(
+                    "可以。你给我目的地、日期或具体对象后，我可以查询景点开放、门票预约、天气、交通、住宿区域和旅行风险等信息。"
+                )
+            return FakeResponse(f"这是围绕“{message}”生成的回答。")
         if "智旅顾问" in system or "专业旅行顾问" in system:
             self.summary_payload = json.loads(messages[1][1])
         if self.summary:
@@ -130,6 +177,33 @@ def test_chatbot_agent_answers_with_current_itinerary(monkeypatch) -> None:
     assert "成都" in response.reply
     assert "3200" in response.reply
     assert response.updated_itinerary is None
+
+
+def test_chatbot_agent_uses_llm_for_identity_question(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(intent="ask")
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    response = ChatbotAgent().handle(ChatbotMessageRequest(message="你是谁"))
+
+    assert response.intent == "ask"
+    assert response.reply == "我是智旅顾问，可以帮你规划、调整、查询和比较旅行方案。"
+    assert fake_llm.ask_payload["message"] == "你是谁"
+    assert "目的地、日期、人数、预算和节奏" not in response.reply
+    assert "调研完成" not in response.reply
+
+
+def test_chatbot_agent_uses_llm_for_search_capability_question(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(intent="ask")
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    response = ChatbotAgent().handle(ChatbotMessageRequest(message="你能不能查找内容"))
+
+    assert response.intent == "ask"
+    assert "可以" in response.reply
+    assert "景点开放" in response.reply
+    assert fake_llm.ask_payload["message"] == "你能不能查找内容"
+    assert response.reply != "我是你的智旅顾问，会先帮你理清目的地、日期、人数、预算和节奏，再给可执行建议。你可以先告诉我这次旅行最重要的约束。"
+    assert "提示词" not in response.reply
 
 
 def test_chatbot_agent_updates_current_itinerary(monkeypatch) -> None:
@@ -433,6 +507,118 @@ def test_chatbot_agent_routes_realtime_search_categories(monkeypatch) -> None:
         assert all(term in queries[-1] for term in expected_terms)
 
 
+def test_realtime_transport_answer_uses_12306_mcp_when_available(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(
+        intent="search",
+        route_kind="transport",
+        route_query="上海到杭州 明天上午 高铁 直达 不中转",
+    )
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            raise AssertionError("12306 MCP 成功时不应降级到网页搜索")
+
+    captured = {}
+
+    def fake_transport_tool(
+        message: str,
+        search_query: str = "",
+        llm=None,
+    ) -> TransportToolResult:
+        captured["message"] = message
+        captured["search_query"] = search_query
+        captured["llm"] = llm
+        return TransportToolResult(
+            available=True,
+            answer=(
+                "## 明确结论\n"
+                "- G205 上海虹桥 07:00 -> 杭州东 07:45，历时 00:45；二等座有，87元\n"
+                "- 12306 官方页面为准"
+            ),
+            source_notes=["2026-06-28 上海到杭州返回 1 条直达车次。"],
+            tickets=[
+                TrainTicket(
+                    train_code="G205",
+                    from_station="上海虹桥",
+                    to_station="杭州东",
+                    start_time="07:00",
+                    arrive_time="07:45",
+                    duration="00:45",
+                    date="2026-06-28",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.agents.chatbot_agent.nodes.realtime_query.search_train_tickets_for_agent",
+        fake_transport_tool,
+    )
+
+    response = ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(message="高铁，上海到杭州，明天上午，接受直达优先，不中转")
+    )
+
+    assert "G205" in response.reply
+    assert "上海虹桥 07:00 -> 杭州东 07:45" in response.reply
+    assert "二等座有，87元" in response.reply
+    assert "12306 官方页面为准" in response.reply
+    assert response.sources[0].title == "中国铁路12306 / 12306 MCP"
+    assert response.sources[0].content == "2026-06-28 上海到杭州返回 1 条直达车次。"
+    assert response.research_steps[1].title == "查询12306实时余票"
+    assert response.research_steps[1].summary == "已获取12306 MCP返回的结构化铁路余票。"
+    assert captured == {
+        "message": "高铁，上海到杭州，明天上午，接受直达优先，不中转",
+        "search_query": "上海到杭州 明天上午 高铁 直达 不中转",
+        "llm": fake_llm,
+    }
+
+
+def test_realtime_transport_falls_back_to_web_search_when_12306_fails(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(
+        intent="search",
+        route_kind="transport",
+        route_query="上海到杭州 明天上午 高铁 直达 不中转",
+        summary=(
+            "上海到杭州明天上午优先看上海虹桥到杭州东的直达高铁。"
+            "网页搜索只能作为线索，余票仍需以 12306 为准。"
+        ),
+    )
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+    monkeypatch.setattr(
+        "app.agents.chatbot_agent.nodes.realtime_query.search_train_tickets_for_agent",
+        lambda message, search_query="", llm=None: TransportToolResult(
+            available=False,
+            answer="",
+            source_notes=[],
+            tickets=[],
+            error_message="12306 MCP 未启用。",
+        ),
+    )
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            return TavilyResponse(
+                query=query,
+                results=[
+                    SearchResult(
+                        title="上海至杭州火车票查询 - 12306",
+                        url="https://www.12306.cn/",
+                        content="铁路车票、余票、票价和列车时刻请以铁路12306为准。",
+                    )
+                ],
+            )
+
+    response = ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(message="高铁，上海到杭州，明天上午，接受直达优先，不中转")
+    )
+
+    assert "12306实时查询未完成" in response.reply
+    assert "已降级使用网页实时搜索整理线索" in response.reply
+    assert "上海虹桥到杭州东" in response.reply
+    assert fake_llm.realtime_summary_payload["query_kind"] == "transport"
+
+
 def test_chatbot_agent_streams_query_plan_and_steps_for_search(monkeypatch) -> None:
     monkeypatch.setattr(
         chatbot_agent,
@@ -583,7 +769,9 @@ def test_chatbot_agent_researches_open_travel_recommendation_with_llm_plan(monke
     assert queries[:2] == ["长沙 热门景点 推荐 官方 旅游", "长沙 必去景点 游玩时间 门票"]
     assert response.research_steps[0].id == "understand"
     assert "先确认长沙热门景点信息" in response.research_steps[0].summary
-    assert any(step.id.startswith("generate_") for step in response.research_steps)
+    assert not any(step.id.startswith("generate_") for step in response.research_steps)
+    assert response.research_steps[-1].id == "synthesize"
+    assert response.research_steps[-1].status == "completed"
     assert "岳麓山" in response.reply
 
 
@@ -823,7 +1011,7 @@ def test_chatbot_agent_research_finalizes_when_summary_llm_times_out(monkeypatch
     class TimeoutSummaryLLM(FakeChatLLM):
         def invoke(self, messages):
             system = messages[0][1]
-            if "专业旅行顾问" in system:
+            if "只根据用户问题和本轮搜索证据" in system:
                 time.sleep(0.05)
                 return FakeResponse("")
             return super().invoke(messages)
@@ -862,22 +1050,28 @@ def test_chatbot_agent_research_finalizes_when_summary_llm_times_out(monkeypatch
     )
 
     assert events[-1]["event"] == "final"
-    assert events[-1]["data"].reply
-    assert "长沙热门景点推荐" in events[-1]["data"].reply
+    assert "当前 LLM 总结不可用" in events[-1]["data"].reply
+    assert "长沙 热门景点 推荐" in events[-1]["data"].reply
 
 
 def test_chatbot_agent_research_fallback_matches_scenic_recommendation_question(monkeypatch) -> None:
-    class EmptySummaryLLM(FakeChatLLM):
+    class SummaryLLM(FakeChatLLM):
         def invoke(self, messages):
             system = messages[0][1]
-            if "专业旅行顾问" in system:
-                return FakeResponse("")
+            if "只根据用户问题和本轮搜索证据" in system:
+                return FakeResponse(
+                    "## 长沙热门景点推荐\n"
+                    "- 岳麓山：适合自然休闲和岳麓书院人文线，建议预留半天。\n"
+                    "- 橘子洲：适合江景散步和城市地标打卡，出发前确认预约要求。\n"
+                    "- 湖南博物院：适合历史文化和室内参观，建议提前预约。\n"
+                    "- 杜甫江阁和太平街/坡子街：适合夜景和美食补充安排。"
+                )
             return super().invoke(messages)
 
     monkeypatch.setattr(
         chatbot_agent,
         "build_chat_llm",
-        lambda: EmptySummaryLLM(
+        lambda: SummaryLLM(
             intent="research",
             route_query="长沙热门景点推荐",
             search_queries=[
@@ -910,30 +1104,313 @@ def test_chatbot_agent_research_fallback_matches_scenic_recommendation_question(
         ChatbotMessageRequest(message="长沙热门景点推荐")
     )
 
-    assert "## 推荐建议" in response.reply
+    assert "## 长沙热门景点推荐" in response.reply
     assert "岳麓山" in response.reply
     assert "橘子洲" in response.reply
     assert "湖南博物院" in response.reply
+    assert "查询依据：" not in response.reply
     assert "出发前检查清单" not in response.reply
     assert "实时风险和准备事项" not in response.reply
 
 
-def test_research_steps_fill_missing_queries_from_defaults() -> None:
+def test_research_fallback_uses_beijing_search_evidence_without_fixed_spots(monkeypatch) -> None:
+    class SummaryLLM(FakeChatLLM):
+        def invoke(self, messages):
+            system = messages[0][1]
+            if "只根据用户问题和本轮搜索证据" in system:
+                return FakeResponse(
+                    "## 北京热门景点推荐\n"
+                    "- 故宫博物院：首次到访优先级最高，需提前确认预约和开放时间。\n"
+                    "- 天安门广场：适合与故宫、前门串联，按官方要求预约并带证件。\n"
+                    "- 颐和园、八达岭长城、天坛公园：根据体力和停留天数取舍。"
+                )
+            return super().invoke(messages)
+
+    monkeypatch.setattr(
+        chatbot_agent,
+        "build_chat_llm",
+        lambda: SummaryLLM(
+            intent="research",
+            route_query="北京热门景点推荐",
+            search_queries=[
+                "北京热门景点推荐 2025",
+                "北京 故宫 开放时间 预约",
+                "北京 天安门广场 预约 参观",
+            ],
+        ),
+    )
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            content_by_query = {
+                "北京热门景点推荐 2025": "北京首次到访可优先考虑故宫博物院、天安门广场、颐和园、八达岭长城和天坛公园。",
+                "北京 故宫 开放时间 预约": "故宫博物院参观通常需要提前预约，出发前应确认官方开放时间和余票。",
+                "北京 天安门广场 预约 参观": "天安门广场参观需按官方要求预约并携带有效证件。",
+            }
+            return TavilyResponse(
+                query=query,
+                results=[
+                    SearchResult(
+                        title=f"{query} 结果",
+                        url=f"https://example.com/{len(query)}",
+                        content=content_by_query[query],
+                    )
+                ],
+            )
+
+    response = ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(message="北京热门景点推荐")
+    )
+
+    assert "故宫博物院" in response.reply
+    assert "天安门广场" in response.reply
+    assert "岳麓山" not in response.reply
+    assert "橘子洲" not in response.reply
+    assert "湖南博物院" not in response.reply
+
+
+def test_research_steps_use_llm_queries_without_fixed_fillers() -> None:
     request = ChatbotMessageRequest(
-        message="我下周想去厦门，需要注意什么？",
+        message="从武汉去长沙热门景点的出行方案，两天时间",
     )
     decision = IntentDecision(
         intent="research",
-        reason="测试短查询列表",
-        search_queries=["厦门 下周 天气"],
+        reason="测试动态查询列表",
+        search_queries=[
+            "武汉到长沙 高铁 时长 班次",
+            "长沙 两天 热门景点 路线",
+        ],
+        generation_tasks=[
+            "按两天节奏组织出行方案",
+            "结合查询结果筛选景点",
+        ],
     )
 
     steps = build_research_steps(request, decision)
     searchable_steps = [step for step in steps if step.query]
 
-    assert len(searchable_steps) == 5
-    assert searchable_steps[0].query == "厦门 下周 天气"
-    assert all(step.query for step in searchable_steps)
+    assert [step.query for step in searchable_steps] == decision.search_queries
+    assert not any(step.id.startswith("generate_") for step in steps)
+    assert "天气" not in searchable_steps[0].title
+
+
+def test_research_default_queries_follow_question_without_unrelated_weather() -> None:
+    request = ChatbotMessageRequest(
+        message="从武汉去长沙热门景点的出行方案，两天时间",
+    )
+    decision = IntentDecision(
+        intent="research",
+        reason="测试默认动态查询",
+        search_query="从武汉去长沙 两天 热门景点 出行方案",
+    )
+
+    steps = build_research_steps(request, decision)
+    queries = [step.query for step in steps if step.query]
+
+    assert any(query.startswith("武汉到长沙 高铁") for query in queries)
+    assert any("长沙" in query and "两天" in query and "景点" in query for query in queries)
+    assert any("预约" in query for query in queries)
+    assert not any("天气" in query for query in queries)
+    assert not any("防晒" in query or "防蚊" in query for query in queries)
+
+
+def test_chatbot_agent_streams_synthesis_only_after_queries_complete(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chatbot_agent,
+        "build_chat_llm",
+        lambda: FakeChatLLM(
+            intent="research",
+            route_query="武汉到长沙 两天 景点方案",
+            search_queries=[
+                "武汉到长沙 高铁 时长 班次",
+                "长沙 两天 热门景点 路线",
+            ],
+            generation_tasks=["结合交通和景点查询结果生成两天方案"],
+            summary="## 两天方案\n第 1 天岳麓山和橘子洲，第 2 天湖南博物院后返程。",
+        ),
+    )
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            return TavilyResponse(
+                query=query,
+                results=[
+                    SearchResult(
+                        title=f"{query} 结果",
+                        url=f"https://example.com/{query}",
+                        content=f"{query} 的实时查询摘要。",
+                    )
+                ],
+            )
+
+    events = list(
+        ChatbotAgent(search_agency=FakeSearchAgency()).stream(
+            ChatbotMessageRequest(message="从武汉去长沙热门景点的出行方案，两天时间")
+        )
+    )
+
+    plan = next(event["data"] for event in events if event["event"] == "research_plan")
+    assert not any(step.id.startswith("generate_") for step in plan)
+    assert all(step.id != "synthesize" for step in plan)
+
+    synthesis_events = [
+        event["data"]
+        for event in events
+        if event["event"] == "research_step" and event["data"].id == "synthesize"
+    ]
+    assert [step.status for step in synthesis_events] == ["running", "completed"]
+    assert events[-1]["data"].research_steps[-1].id == "synthesize"
+
+
+def test_research_summary_llm_receives_source_evidence(monkeypatch) -> None:
+    fake_llm = FakeChatLLM(
+        intent="research",
+        search_queries=["长沙 岳麓山 橘子洲 湖南博物院 开放时间 预约"],
+        summary="## 建议\n优先岳麓山、橘子洲和湖南博物院，预约以官方为准。",
+    )
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            return TavilyResponse(
+                query=query,
+                results=[
+                    SearchResult(
+                        title="长沙景区预约入口汇总",
+                        url="https://example.com/reservation",
+                        content="橘子洲、岳麓山需要预约，湖南博物院可提前预约。",
+                        published_date="2026-06-25",
+                    )
+                ],
+            )
+
+    ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(message="长沙热门景点怎么安排")
+    )
+
+    evidence = fake_llm.summary_payload["source_evidence"]
+    assert evidence[0]["query"] == "长沙 岳麓山 橘子洲 湖南博物院 开放时间 预约"
+    assert evidence[0]["sources"][0]["content"] == "橘子洲、岳麓山需要预约，湖南博物院可提前预约。"
+    assert fake_llm.summary_payload["traveler_profile"] == {
+        "pace_preference": None,
+        "food_preferences": [],
+        "avoidances": [],
+        "interests": [],
+        "budget_sensitivity": None,
+        "confirmed_facts": [],
+    }
+
+
+def test_research_summary_uses_single_compact_prompt_with_truncated_evidence(monkeypatch) -> None:
+    class CapturingSummaryLLM(FakeChatLLM):
+        def invoke(self, messages):
+            system = messages[0][1]
+            if "只根据用户问题和本轮搜索证据" in system:
+                self.summary_payload = json.loads(messages[1][1])
+                return FakeResponse("## 建议\n按查询证据安排。")
+            if "专业旅行顾问" in system:
+                raise AssertionError("research summary should not send the full prompt first")
+            return super().invoke(messages)
+
+    fake_llm = CapturingSummaryLLM(
+        intent="research",
+        search_queries=["长沙 热门景点 推荐"],
+    )
+    monkeypatch.setattr(chatbot_agent, "build_chat_llm", lambda: fake_llm)
+
+    long_content = "岳麓山" + "很适合慢游" * 120
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            return TavilyResponse(
+                query=query,
+                results=[
+                    SearchResult(
+                        title="长沙景点推荐",
+                        url="https://example.com/1",
+                        content=long_content,
+                    ),
+                    SearchResult(
+                        title="长沙预约提示",
+                        url="https://example.com/2",
+                        content="橘子洲和湖南博物院建议提前确认预约。",
+                    ),
+                    SearchResult(
+                        title="不应进入总结 payload",
+                        url="https://example.com/3",
+                        content="第三条证据不应进入总结 payload。",
+                    ),
+                ],
+            )
+
+    response = ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(message="长沙热门景点推荐")
+    )
+
+    sources = fake_llm.summary_payload["source_evidence"][0]["sources"]
+    assert response.reply == "## 建议\n按查询证据安排。"
+    assert len(sources) == 2
+    assert len(sources[0]["content"]) <= 503
+    assert sources[0]["content"].endswith("...")
+    assert sources[1]["title"] == "长沙预约提示"
+
+
+def test_research_fallback_uses_search_records_for_two_day_plan(monkeypatch) -> None:
+    class EmptyPrimarySummaryLLM(FakeChatLLM):
+        def invoke(self, messages):
+            system = messages[0][1]
+            if "source_evidence 和每个调研步骤" in system:
+                return FakeResponse("")
+            if "只根据用户问题和本轮搜索证据" in system:
+                return FakeResponse(
+                    "## 两天方案\n"
+                    "- 交通建议：武汉到长沙南高铁约1小时30分钟，早班车较多。\n"
+                    "- 第 1 天：岳麓山、岳麓书院和橘子洲。\n"
+                    "- 第 2 天：湖南博物院、太平街后返程。"
+                )
+            return super().invoke(messages)
+
+    monkeypatch.setattr(
+        chatbot_agent,
+        "build_chat_llm",
+        lambda: EmptyPrimarySummaryLLM(
+            intent="research",
+            route_query="武汉到长沙 两天 热门景点",
+            search_queries=[
+                "武汉到长沙 高铁 时长 班次",
+                "长沙 两天 热门景点 路线",
+                "岳麓山 橘子洲 湖南博物院 开放时间 预约",
+            ],
+        ),
+    )
+
+    class FakeSearchAgency:
+        def basic_search_news(self, query: str, max_results: int = 5) -> TavilyResponse:
+            content_by_query = {
+                "武汉到长沙 高铁 时长 班次": "武汉到长沙南高铁约1小时30分钟，早班车较多。",
+                "长沙 两天 热门景点 路线": "两日路线可安排岳麓山、岳麓书院、橘子洲、湖南博物院、太平街。",
+                "岳麓山 橘子洲 湖南博物院 开放时间 预约": "橘子洲、岳麓山免费但通常需要预约；湖南博物院需提前预约。",
+            }
+            return TavilyResponse(
+                query=query,
+                results=[
+                    SearchResult(
+                        title=f"{query} 结果",
+                        url=f"https://example.com/{len(query)}",
+                        content=content_by_query[query],
+                    )
+                ],
+            )
+
+    response = ChatbotAgent(search_agency=FakeSearchAgency()).handle(
+        ChatbotMessageRequest(message="从武汉去长沙热门景点的出行方案，两天时间")
+    )
+
+    assert "第 1 天" in response.reply
+    assert "第 2 天" in response.reply
+    assert "武汉到长沙南高铁约1小时30分钟" in response.reply
+    assert "岳麓山" in response.reply
+    assert "可作为长沙热门景点候选" not in response.reply
 
 
 def test_chatbot_agent_keeps_single_point_query_as_search_with_llm(monkeypatch) -> None:

@@ -3,14 +3,25 @@
 import json
 
 from app.models.schemas import DayPlan, TripEditRequest
+from app.agents.trip_planner_agent.state import DayEditDraft
 
 
-SYSTEM_PROMPT = (
-    "你是一名旅行行程编辑助手。"
-    "请根据用户编辑指令，只重写目标那一天的核心安排。"
-    "你必须只输出一个 JSON 对象，不要输出 Markdown、解释文字或代码块。"
-    "编辑结果要尽量保留原 itinerary 的整体风格、预算结构和轻松程度。"
-)
+DAY_EDIT_OUTPUT_SCHEMA = DayEditDraft.model_json_schema()
+
+
+def _build_day_edit_system_prompt(output_schema_: dict = DAY_EDIT_OUTPUT_SCHEMA) -> str:
+    return (
+        "你是一名旅行行程编辑助手。"
+        "请根据用户编辑指令，只重写目标那一天的核心安排。"
+        "编辑结果要尽量保留原 itinerary 的整体风格、预算结构和轻松程度。\n\n"
+        "只返回一个符合 schema 的 JSON 对象，不要 Markdown，不要解释，不要追加文字。\n\n"
+        "<OUTPUT JSON SCHEMA>\n"
+        f"{json.dumps(output_schema_, indent=2, ensure_ascii=False)}\n"
+        "</OUTPUT JSON SCHEMA>"
+    )
+
+
+SYSTEM_PROMPT = _build_day_edit_system_prompt()
 
 
 def build_day_edit_messages(
@@ -39,6 +50,6 @@ def build_day_edit_messages(
 需要尽量保留的约束：{', '.join(request.preserve_constraints) if request.preserve_constraints else '无'}
 
 要求：只输出目标日的 theme、spot_name、spot_description、meal_name、meal_notes、daily_note。
-如果用户要求更轻松或不要太满，应减少固定景点压力。只返回 JSON 对象。
+如果用户要求更轻松或不要太满，应减少固定景点压力。只返回符合系统消息 schema 的 JSON 对象。
 """
     return [("system", SYSTEM_PROMPT), ("human", human_prompt)]

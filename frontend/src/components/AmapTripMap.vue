@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 interface TripMapPoint {
   key: string;
@@ -27,6 +28,7 @@ const props = defineProps<{
   points: TripMapPoint[];
   large?: boolean;
 }>();
+const { t } = useI18n();
 
 declare global {
   interface Window {
@@ -61,17 +63,17 @@ const visiblePoints = computed(() =>
 const filterOptions = computed(() => [
   {
     key: "spot" as const,
-    label: "景点",
+    label: t("map.categories.spot"),
     count: validPoints.value.filter((point) => (point.kind || "spot") === "spot").length,
   },
   {
     key: "hotel" as const,
-    label: "酒店",
+    label: t("map.categories.hotel"),
     count: validPoints.value.filter((point) => point.kind === "hotel").length,
   },
   {
     key: "meal" as const,
-    label: "餐饮",
+    label: t("map.categories.meal"),
     count: validPoints.value.filter((point) => point.kind === "meal").length,
   },
 ]);
@@ -122,15 +124,15 @@ function escapeHtml(value: string | number | null | undefined): string {
 }
 
 function formatRating(value?: number | null): string {
-  return value != null ? `${value.toFixed(1)} 分` : "";
+  return value != null ? t("common.rating", { value: value.toFixed(1) }) : "";
 }
 
 function formatCost(value?: number | null, fallback?: number | null): string {
   if (value != null) {
-    return `¥${value.toFixed(0)} 参考`;
+    return t("common.referencePrice", { value: value.toFixed(0) });
   }
   if (fallback != null) {
-    return `¥${fallback.toFixed(0)} 预算`;
+    return t("common.budgetPrice", { value: fallback.toFixed(0) });
   }
   return "";
 }
@@ -146,7 +148,7 @@ function getPointVisual(point: TripMapPoint) {
   if (point.kind === "hotel") {
     return {
       icon: "🏨",
-      badge: "推荐酒店",
+      badge: t("map.recommendedHotel"),
       color: "#059669",
       gradient: "linear-gradient(135deg,#10b981,#059669)",
       soft: "rgba(16,185,129,0.12)",
@@ -156,7 +158,7 @@ function getPointVisual(point: TripMapPoint) {
   if (point.kind === "meal") {
     return {
       icon: "🍽",
-      badge: point.label || "推荐餐饮",
+      badge: point.label || t("map.recommendedMeal"),
       color: "#d97706",
       gradient: "linear-gradient(135deg,#f59e0b,#d97706)",
       soft: "rgba(245,158,11,0.12)",
@@ -166,9 +168,9 @@ function getPointVisual(point: TripMapPoint) {
   return {
     icon: "🚩",
     badge: `D${point.dayIndex}`,
-    color: "#5b5bd6",
-    gradient: "linear-gradient(135deg,#6d82de,#8a67cf)",
-    soft: "rgba(109,130,222,0.12)",
+    color: "#143c38",
+    gradient: "linear-gradient(135deg,#143c38,#1f574f)",
+    soft: "rgba(20,60,56,0.12)",
   };
 }
 
@@ -278,7 +280,7 @@ function renderMarkers() {
           overflow:hidden;
           font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
         ">
-          <div style="width:100%;height:${isRecommendedPoi ? "84px" : "72px"};overflow:hidden;background:#eef3ff;">
+          <div style="width:100%;height:${isRecommendedPoi ? "84px" : "72px"};overflow:hidden;background:rgba(238,246,241,0.9);">
             ${imageHtml}
           </div>
           <div style="padding:${isRecommendedPoi ? "7px 9px 8px" : "5px 8px 6px"};">
@@ -289,7 +291,7 @@ function renderMarkers() {
             <div style="font-size:${isRecommendedPoi ? "13px" : "11px"};font-weight:800;color:#2d3748;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safeName}</div>
             ${
               metaItems.length
-                ? `<div style="margin-top:4px;color:#667085;font-size:10px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(metaItems.join(" · "))}</div>`
+                ? `<div style="margin-top:4px;color:#63726e;font-size:10px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(metaItems.join(" · "))}</div>`
                 : ""
             }
           </div>
@@ -314,7 +316,7 @@ function renderMarkers() {
       content: `
         <div style="max-width:240px;padding:4px 2px;line-height:1.7;">
           <strong>${safeName}</strong><br/>
-          <span>${safeLabel} · 第${point.dayIndex}天 · ${safeTheme}</span><br/>
+          <span>${escapeHtml(t("map.infoLine", { label: safeLabel, day: point.dayIndex, theme: safeTheme }))}</span><br/>
           <span>${safeAddress}</span>
           ${safeDescription ? `<br/><span>${safeDescription}</span>` : ""}
         </div>
@@ -334,7 +336,7 @@ function renderMarkers() {
   if (routePath.length >= 2) {
     routeLine.value = new window.AMap.Polyline({
       path: routePath,
-      strokeColor: "#6d82de",
+      strokeColor: "#8f661f",
       strokeWeight: 3,
       strokeOpacity: 0.8,
       strokeStyle: "dashed",
@@ -342,10 +344,10 @@ function renderMarkers() {
       lineJoin: "round",
       lineCap: "round",
       showDir: true,
-      dirColor: "#6d82de",
+      dirColor: "#8f661f",
       dirSize: 8,
       borderWeight: 1,
-      borderColor: "rgba(109,130,222,0.25)",
+      borderColor: "rgba(143,102,31,0.25)",
       zIndex: 50,
     });
     mapInstance.value.add(routeLine.value);
@@ -371,7 +373,7 @@ function ensureMapScript(): Promise<void> {
 
     if (existingScript) {
       existingScript.addEventListener("load", () => resolve(), { once: true });
-      existingScript.addEventListener("error", () => reject(new Error("高德地图脚本加载失败。")), {
+      existingScript.addEventListener("error", () => reject(new Error(t("map.errors.script"))), {
         once: true,
       });
       return;
@@ -383,14 +385,14 @@ function ensureMapScript(): Promise<void> {
     script.defer = true;
     script.dataset.amapLoader = "true";
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error("高德地图脚本加载失败。"));
+    script.onerror = () => reject(new Error(t("map.errors.script")));
     document.head.appendChild(script);
   });
 }
 
 async function initMap() {
   if (!amapKey) {
-    loadError.value = "未配置前端高德 JavaScript Key。";
+    loadError.value = t("map.errors.missingKey");
     return;
   }
 
@@ -403,7 +405,7 @@ async function initMap() {
     await ensureMapScript();
 
     if (!window.AMap) {
-      loadError.value = "高德地图对象初始化失败。";
+      loadError.value = t("map.errors.init");
       return;
     }
 
@@ -417,7 +419,7 @@ async function initMap() {
     renderMarkers();
   } catch (error) {
     console.error(error);
-    loadError.value = "地图加载失败，请检查前端高德 Key 或网络环境。";
+    loadError.value = t("map.errors.load");
   }
 }
 
@@ -443,15 +445,15 @@ onBeforeUnmount(() => {
 <template>
   <div class="trip-map" :class="{ 'trip-map--large': large }">
     <div v-if="loadError" class="trip-map__placeholder">
-      <strong>地图暂未启用</strong>
+      <strong>{{ t("map.disabledTitle") }}</strong>
       <span>{{ loadError }}</span>
     </div>
     <div v-else-if="validPoints.length === 0" class="trip-map__placeholder">
-      <strong>暂无可展示点位</strong>
-      <span>当前 itinerary 里还没有可用的经纬度数据。</span>
+      <strong>{{ t("map.emptyTitle") }}</strong>
+      <span>{{ t("map.emptyDescription") }}</span>
     </div>
     <div v-else class="trip-map__stage">
-      <div class="trip-map__filters" aria-label="地图点位筛选">
+      <div class="trip-map__filters" :aria-label="t('map.filtersLabel')">
         <div
           v-for="option in filterOptions"
           :key="option.key"
@@ -470,7 +472,7 @@ onBeforeUnmount(() => {
           <div
             v-if="dayOptionsByKind[option.key].length > 0"
             class="trip-map__day-menu"
-            :aria-label="`${option.label}按天筛选`"
+            :aria-label="t('map.filterByDay', { label: option.label })"
           >
             <button
               v-for="dayOption in dayOptionsByKind[option.key]"
@@ -483,14 +485,14 @@ onBeforeUnmount(() => {
               type="button"
               @click="selectDay(option.key, dayOption.dayIndex)"
             >
-              <span>第{{ dayOption.dayIndex }}天</span>
+              <span>{{ t("map.dayLabel", { index: dayOption.dayIndex }) }}</span>
               <strong>{{ dayOption.count }}</strong>
             </button>
           </div>
         </div>
       </div>
       <div v-if="visiblePoints.length === 0" class="trip-map__empty-filter">
-        当前分类暂无可展示点位
+        {{ t("map.emptyFilter") }}
       </div>
       <div ref="mapContainer" class="trip-map__canvas"></div>
     </div>
@@ -546,12 +548,12 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(98, 116, 164, 0.16);
+  border: 1px solid rgba(25, 66, 63, 0.16);
   border-radius: 999px;
   padding: 8px 11px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
-  color: #475467;
+  color: #314844;
   font: inherit;
   font-size: 13px;
   font-weight: 800;
@@ -567,8 +569,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 6px;
   min-width: 92px;
+  max-height: min(320px, calc(100vh - 220px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px;
-  border: 1px solid rgba(98, 116, 164, 0.14);
+  border: 1px solid rgba(25, 66, 63, 0.14);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
@@ -578,6 +583,20 @@ onBeforeUnmount(() => {
   transition:
     opacity 0.16s ease,
     transform 0.16s ease;
+}
+
+.trip-map__day-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.trip-map__day-menu::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(25, 66, 63, 0.08);
+}
+
+.trip-map__day-menu::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(20, 60, 56, 0.42);
 }
 
 .trip-map__filter-group:hover .trip-map__day-menu,
@@ -596,8 +615,8 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 999px;
   padding: 7px 9px;
-  background: rgba(241, 245, 249, 0.92);
-  color: #475467;
+  background: rgba(250, 251, 247, 0.92);
+  color: #314844;
   font: inherit;
   font-size: 12px;
   font-weight: 800;
@@ -611,13 +630,13 @@ onBeforeUnmount(() => {
   min-width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: rgba(98, 116, 164, 0.12);
-  color: #667085;
+  background: rgba(20, 60, 56, 0.1);
+  color: #63726e;
   font-size: 10px;
 }
 
 .trip-map__day-filter--active {
-  background: linear-gradient(135deg, rgba(109, 130, 222, 0.96), rgba(138, 103, 207, 0.96));
+  background: linear-gradient(135deg, rgba(20, 60, 56, 0.96), rgba(31, 87, 79, 0.96));
   color: #ffffff;
 }
 
@@ -632,14 +651,14 @@ onBeforeUnmount(() => {
   min-width: 20px;
   height: 20px;
   border-radius: 999px;
-  background: rgba(98, 116, 164, 0.12);
-  color: #667085;
+  background: rgba(20, 60, 56, 0.1);
+  color: #63726e;
   font-size: 11px;
 }
 
 .trip-map__filter--active {
-  border-color: rgba(91, 91, 214, 0.18);
-  background: linear-gradient(135deg, #6d82de, #8a67cf);
+  border-color: rgba(20, 60, 56, 0.18);
+  background: linear-gradient(135deg, #143c38, #1f574f);
   color: #ffffff;
 }
 
@@ -663,7 +682,7 @@ onBeforeUnmount(() => {
   padding: 10px 14px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
-  color: #667085;
+  color: #63726e;
   font-size: 13px;
   font-weight: 800;
 }
@@ -676,20 +695,20 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 20px;
   background:
-    linear-gradient(135deg, rgba(129, 179, 255, 0.18), rgba(137, 108, 230, 0.15)),
-    linear-gradient(45deg, rgba(255, 255, 255, 0.75), rgba(244, 247, 255, 0.9));
-  color: #5b6474;
+    linear-gradient(135deg, rgba(20, 60, 56, 0.14), rgba(215, 173, 88, 0.16)),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.75), rgba(250, 251, 247, 0.9));
+  color: #314844;
   text-align: center;
 }
 
 .trip-map__placeholder strong {
   font-size: 22px;
-  color: #4b5563;
+  color: #143c38;
 }
 
 .trip-map__placeholder span {
   max-width: 360px;
-  color: #7b8494;
+  color: #63726e;
   line-height: 1.7;
 }
 

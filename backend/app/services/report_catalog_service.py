@@ -11,6 +11,7 @@ from typing import Any, Iterable
 
 from app.models.schemas import (
     DeepPlanDocument,
+    DeepPlanResearchTraceStep,
     DeepPlanSource,
     TripDetailResponse,
     TripSummaryItem,
@@ -125,14 +126,53 @@ def _sources_from_state(state: dict[str, Any]) -> list[DeepPlanSource]:
                 DeepPlanSource(
                     section_title=section_title,
                     query=str(source.get("query", "")),
+                    step_id=str(source.get("step_id", "")),
                     title=str(source.get("title", "")),
                     url=str(source.get("url", "")),
                     content=str(source.get("content", "")),
+                    raw_content=source.get("raw_content"),
+                    used_in_summary=bool(source.get("used_in_summary", False)),
                     score=source.get("score"),
                     published_date=source.get("published_date"),
                 )
             )
     return sources
+
+
+def _research_trace_from_state(state: dict[str, Any]) -> list[DeepPlanResearchTraceStep]:
+    trace: list[DeepPlanResearchTraceStep] = []
+    paragraphs = state.get("paragraphs", [])
+    if not isinstance(paragraphs, list):
+        return trace
+    for paragraph in paragraphs:
+        if not isinstance(paragraph, dict):
+            continue
+        section_title = str(paragraph.get("title", ""))
+        research = paragraph.get("research", {})
+        steps = research.get("trace_steps", []) if isinstance(research, dict) else []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            trace.append(
+                DeepPlanResearchTraceStep(
+                    step_id=str(step.get("step_id", "")),
+                    phase=str(step.get("phase", "")),
+                    section_title=str(step.get("section_title") or section_title),
+                    search_query=str(step.get("search_query", "")),
+                    search_tool=str(step.get("search_tool", "")),
+                    reasoning=str(step.get("reasoning", "")),
+                    summary_before=str(step.get("summary_before", "")),
+                    summary_after=str(step.get("summary_after", "")),
+                    evidence_count=int(step.get("evidence_count") or 0),
+                    prompt_chars=int(step.get("prompt_chars") or 0),
+                    estimated_prompt_tokens=int(step.get("estimated_prompt_tokens") or 0),
+                    fallback_reason=str(step.get("fallback_reason", "")),
+                    timestamp=str(step.get("timestamp", "")),
+                )
+            )
+    return trace
 
 
 def _build_artifact(markdown_path: Path) -> ReportArtifact | None:
@@ -162,7 +202,11 @@ def _build_artifact(markdown_path: Path) -> ReportArtifact | None:
         query=query,
         destination=destination,
         dates=dates,
-        document=DeepPlanDocument(markdown=markdown, sources=_sources_from_state(state)),
+        document=DeepPlanDocument(
+            markdown=markdown,
+            sources=_sources_from_state(state),
+            research_trace=_research_trace_from_state(state),
+        ),
         created_at=created_at,
         updated_at=updated_at,
     )

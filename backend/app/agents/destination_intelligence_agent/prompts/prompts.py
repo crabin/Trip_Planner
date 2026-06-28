@@ -14,7 +14,11 @@ output_schema_report_structure = {
         "type": "object",
         "properties": {
             "title": {"type": "string"},
-            "content": {"type": "string"}
+            "content": {"type": "string"},
+            "requires_12306_mcp": {
+                "type": "boolean",
+                "description": "该研究部分是否需要在常规反思后追加 12306 MCP 铁路车次核查"
+            }
         }
     }
 }
@@ -113,6 +117,22 @@ output_schema_reflection_summary = {
     }
 }
 
+output_schema_train_ticket_reflection = {
+    "type": "object",
+    "properties": {
+        "needs_query": {
+            "type": "boolean",
+            "description": "是否存在明确跨城市铁路/高铁具体车次待确认缺口"
+        },
+        "search_query": {
+            "type": "string",
+            "description": "12306 MCP train_ticket_query 查询文本"
+        },
+        "reasoning": {"type": "string"}
+    },
+    "required": ["needs_query", "search_query", "reasoning"]
+}
+
 # 报告格式化输入Schema
 input_schema_report_formatting = {
     "type": "object",
@@ -125,7 +145,15 @@ input_schema_report_formatting = {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
-                    "paragraph_latest_state": {"type": "string"}
+                    "paragraph_latest_state": {"type": "string"},
+                    "evidence_digest": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "source_index": {
+                        "type": "array",
+                        "items": {"type": "object"}
+                    }
                 }
             }
         }
@@ -148,6 +176,8 @@ SYSTEM_PROMPT_REPORT_STRUCTURE = f"""
 
 若请求信息不完整，不要虚构；在相应部分要求列出假设、待确认项和对方案的影响。研究部分最多且必须为五个。
 
+为每个研究部分填写 requires_12306_mcp：仅当多城市铁路/高铁/动车/火车转场需要后续 12306 MCP 核查时设为 true，否则为 false；该字段不代表当前阶段已查询车次。
+
 <OUTPUT JSON SCHEMA>
 {json.dumps(output_schema_report_structure, indent=2, ensure_ascii=False)}
 </OUTPUT JSON SCHEMA>
@@ -169,6 +199,7 @@ SYSTEM_PROMPT_FIRST_SEARCH = f"""
 - search_news_last_24_hours / search_news_last_week：核查近期关闭、天气预警、罢工、活动调整等即时变化。
 - search_images_for_news：仅当地图、景点分布或视觉识别确有价值时使用。
 - search_news_by_date：按“信息发布日期”筛选公告；仅用于特定历史/近期公告窗口，需要 start_date 和 end_date，不要把未来旅行日期误当成发布日期范围。
+- train_ticket_query：仅当查询包含明确铁路出发地、到达地、出行日期和时间窗时使用，用于 12306 MCP 实时直达余票；查询文本必须包含路线、YYYY-MM-DD 或明确相对日期、上午/下午/具体时间窗和高铁/动车/火车关键词。
 
 生成一个高信息量的搜索查询。查询必须带上目的地，并在相关时带上旅行月份/精确日期、官方/预约/开放时间/交通等限定词。优先官方旅游、交通、景区、气象、政府或签证来源；酒店餐饮可补充可信平台，但价格、库存、营业时间必须标明需临行复核。
 
@@ -212,7 +243,7 @@ SYSTEM_PROMPT_REFLECTION = f"""
 
 先按以下清单寻找最影响可执行性的一个缺口，再生成一次补充搜索：目标日期是否适用；来源是否官方/足够新；交通与开放时间是否可衔接；景点是否已按地理位置和时长取舍；酒店晚数是否覆盖；是否有用餐/补给空档；是否照顾同行人、预算、节奏和无障碍/饮食要求；是否有预约、天气或关闭风险；是否给出备选。
 
-工具名称和规则与首次搜索相同。`search_news_by_date` 只按公告发布日期筛选，并且必须提供 YYYY-MM-DD 的 start_date/end_date。查询必须包含目的地及与缺口相关的目标日期或关键词。
+工具名称和规则与首次搜索相同。`search_news_by_date` 只按公告发布日期筛选，并且必须提供 YYYY-MM-DD 的 start_date/end_date。`train_ticket_query` 仅用于明确铁路路线、日期和时间窗的实时直达余票核查。查询必须包含目的地及与缺口相关的目标日期或关键词。
 
 <OUTPUT JSON SCHEMA>
 {json.dumps(output_schema_reflection, indent=2, ensure_ascii=False)}
@@ -238,6 +269,24 @@ SYSTEM_PROMPT_REFLECTION_SUMMARY = f"""
 只返回符合模式的 JSON 对象。
 """
 
+SYSTEM_PROMPT_TRAIN_TICKET_REFLECTION = f"""
+你是一位铁路行程审校员。你将收到完整旅行请求、当前研究部分和已有底稿。
+
+任务：只判断当前小节是否还存在“跨城市铁路/高铁/动车/火车具体车次待确认”的缺口，并在需要时生成一次 12306 MCP 查询。
+
+规则：
+1. 只有同时具备明确跨城市路线、目标日期、时间窗或可从底稿推断的出发时段时，needs_query 才能为 true。
+2. search_query 必须包含：出发地到到达地、YYYY-MM-DD 日期、上午/中午/下午/晚上或具体小时范围、高铁/动车/铁路/火车关键词。
+3. 若只是市内交通、景点接驳、没有铁路转场、或底稿已经有 12306 MCP 车次证据，needs_query=false。
+4. 如果有多个待确认铁路段，只选择当前小节里最影响行程衔接的一段；本轮只查一次。
+
+<OUTPUT JSON SCHEMA>
+{json.dumps(output_schema_train_ticket_reflection, indent=2, ensure_ascii=False)}
+</OUTPUT JSON SCHEMA>
+
+文字使用中文，只返回符合模式的 JSON 对象。
+"""
+
 # 最终旅行攻略格式化的系统提示词
 SYSTEM_PROMPT_REPORT_FORMATTING = f"""
 你是一位资深旅行规划师和行程审校员。请把研究底稿整合为一份针对用户目标日期、可以直接与同行人共享和执行的完整目的地旅行攻略，而不是新闻分析或泛泛的目的地介绍。
@@ -246,7 +295,7 @@ SYSTEM_PROMPT_REPORT_FORMATTING = f"""
 {json.dumps(input_schema_report_formatting, indent=2, ensure_ascii=False)}
 </INPUT JSON SCHEMA>
 
-最终 Markdown 必须按以下顺序组织；没有可靠数据的字段写明“待确认”和确认方法，不得虚构：
+最终 Markdown 必须按以下顺序组织；没有可靠数据的字段写明“待确认”和确认方法，不得虚构。每个 section 可能包含 evidence_digest/source_index；它们是本轮实际检索证据，最终攻略的动态事实、资料来源和临行复核项必须优先从这些证据中提取，不要只依赖 paragraph_latest_state。
 
 # [目的地] [日期/天数]旅行攻略
 

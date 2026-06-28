@@ -11,6 +11,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import app.agents.trip_planner_agent as trip_planner_agent  # noqa: E402
+from app.agents.trip_planner_agent.prompts.day_editor import SYSTEM_PROMPT as DAY_EDIT_SYSTEM_PROMPT  # noqa: E402
+from app.agents.trip_planner_agent.prompts.planner import SYSTEM_PROMPT as PLANNER_SYSTEM_PROMPT  # noqa: E402
+from app.agents.tools.transport_tool import TransportToolResult  # noqa: E402
+from app.services.transport_query_service import TrainTicket  # noqa: E402
 from app.models.schemas import (  # noqa: E402
     BudgetBreakdown,
     DayPlan,
@@ -20,6 +24,16 @@ from app.models.schemas import (  # noqa: E402
     TripEditRequest,
     TripRequest,
 )
+
+
+def test_trip_planner_json_output_prompts_use_output_schema_blocks() -> None:
+    for prompt in (PLANNER_SYSTEM_PROMPT, DAY_EDIT_SYSTEM_PROMPT):
+        assert "<OUTPUT JSON SCHEMA>" in prompt
+        assert "</OUTPUT JSON SCHEMA>" in prompt
+        assert '"type": "object"' in prompt
+
+    assert '"days"' in PLANNER_SYSTEM_PROMPT
+    assert '"spot_name"' in DAY_EDIT_SYSTEM_PROMPT
 
 
 def build_trip_request() -> TripRequest:
@@ -116,6 +130,83 @@ def test_collect_trip_context_calls_rag_tool_with_expected_arguments(monkeypatch
         "special_notes": "想看日落，不想早起",
         "top_k": 5,
     }
+
+
+def test_collect_trip_context_appends_train_ticket_context(monkeypatch) -> None:
+    def fake_get_destination_guide_context(destination, preferences, pace, special_notes, top_k):
+        return ["攻略片段 1"]
+
+    monkeypatch.setattr(
+        trip_planner_agent,
+        "get_destination_guide_context",
+        fake_get_destination_guide_context,
+    )
+
+    captured = {}
+
+    def fake_transport_tool(message: str, search_query: str = "") -> TransportToolResult:
+        captured["message"] = message
+        captured["search_query"] = search_query
+        return TransportToolResult(
+            available=True,
+            answer="## 推荐直达车次\n- G205 上海虹桥 07:00 -> 杭州东 07:45",
+            source_notes=["来源：中国铁路12306 / 12306 MCP https://www.12306.cn/index/"],
+            tickets=[
+                TrainTicket(
+                    train_code="G205",
+                    from_station="上海虹桥",
+                    to_station="杭州东",
+                    start_time="07:00",
+                    arrive_time="07:45",
+                    duration="00:45",
+                    date="2026-06-28",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.agents.trip_planner_agent.nodes.context.search_train_tickets_for_agent",
+        fake_transport_tool,
+    )
+
+    results = trip_planner_agent.collect_trip_context(
+        "杭州",
+        special_notes="上海到杭州明天上午高铁直达",
+    )
+
+    assert results[0] == "攻略片段 1"
+    assert "铁路实时信息" in results[1]
+    assert "G205" in results[1]
+    assert "上海虹桥 07:00 -> 杭州东 07:45" in results[1]
+    assert captured == {
+        "message": "杭州 上海到杭州明天上午高铁直达",
+        "search_query": "上海到杭州明天上午高铁直达",
+    }
+
+
+def test_collect_trip_context_appends_pending_note_when_train_query_fails(monkeypatch) -> None:
+    monkeypatch.setattr(
+        trip_planner_agent,
+        "get_destination_guide_context",
+        lambda **_kwargs: ["攻略片段 1"],
+    )
+    monkeypatch.setattr(
+        "app.agents.trip_planner_agent.nodes.context.search_train_tickets_for_agent",
+        lambda message, search_query="": TransportToolResult(
+            available=False,
+            answer="",
+            source_notes=[],
+            tickets=[],
+            error_message="12306 MCP 未启用。",
+        ),
+    )
+
+    results = trip_planner_agent.collect_trip_context(
+        "杭州",
+        special_notes="上海到杭州明天上午高铁直达",
+    )
+
+    assert results == ["攻略片段 1", "铁路实时信息待确认：12306 MCP 未启用。"]
 
 
 def test_generate_planner_draft_returns_none_when_api_key_is_missing(monkeypatch) -> None:

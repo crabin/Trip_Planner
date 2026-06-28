@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 from app.api.main import app  # noqa: E402
 import app.api.main as api_main  # noqa: E402
 import app.api.routes.export as export_route  # noqa: E402
+import app.api.routes.location as location_route  # noqa: E402
 import app.api.routes.trip as trip_route  # noqa: E402
 from app.services.storage_service import (  # noqa: E402
     delete_trip_by_trip_id,
@@ -92,6 +93,41 @@ def test_health_endpoint_returns_ok_status() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_location_suggestions_endpoint_returns_items(monkeypatch) -> None:
+    """测试地点建议接口能返回前端 select 可消费的数据。"""
+    monkeypatch.setattr(
+        location_route,
+        "get_location_suggestions",
+        lambda keyword, limit=10: [{"label": f"{keyword}京 · 北京市", "value": "北京"}],
+    )
+
+    response = client.get("/location/suggestions", params={"keyword": "北"})
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [{"label": "北京 · 北京市", "value": "北京"}]}
+
+
+def test_destination_span_check_endpoint_returns_distance(monkeypatch) -> None:
+    """测试目的地跨度校验接口能返回确认弹窗需要的数据。"""
+    monkeypatch.setattr(
+        location_route,
+        "check_destination_span",
+        lambda destinations: {
+            "max_distance_km": 1200.0,
+            "max_pair": ["北京", "三亚"],
+            "resolved": [],
+            "unresolved": [],
+            "is_large_span": True,
+        },
+    )
+
+    response = client.post("/location/span-check", json={"destinations": ["北京", "三亚"]})
+
+    assert response.status_code == 200
+    assert response.json()["is_large_span"] is True
+    assert response.json()["max_pair"] == ["北京", "三亚"]
 
 
 def test_edit_trip_returns_updated_itinerary_successfully(monkeypatch) -> None:

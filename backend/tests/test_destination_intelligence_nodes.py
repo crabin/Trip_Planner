@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agents.destination_intelligence_agent.agent import DestinationIntelligenceAgent
+from app.agents.tools.transport_tool import TransportToolResult
 from app.agents.destination_intelligence_agent.nodes.search_node import (
     FirstSearchNode,
     ReflectionNode,
@@ -20,6 +21,8 @@ from app.agents.destination_intelligence_agent.state import State
 from app.agents.destination_intelligence_agent.utils.text_processing import (
     extract_clean_response,
 )
+from app.integrations.web_search import SearchResult, TavilyResponse
+from app.services.transport_query_service import TrainTicket
 
 
 class FakeLLM:
@@ -106,6 +109,66 @@ def test_reflection_preserves_date_search_parameters() -> None:
     assert result["end_date"] == "2026-06-22"
 
 
+def test_search_nodes_preserve_train_ticket_query_tool() -> None:
+    node = FirstSearchNode(FakeLLM(""))
+
+    result = node.process_output(
+        '{"search_query":"上海到杭州 2026-06-28 上午 高铁 直达",'
+        '"search_tool":"train_ticket_query",'
+        '"reasoning":"跨市铁路段需要查12306实时余票"}'
+    )
+
+    assert result["search_tool"] == "train_ticket_query"
+
+
+def test_destination_agent_executes_train_ticket_query_as_search_evidence(monkeypatch) -> None:
+    agent = object.__new__(DestinationIntelligenceAgent)
+    agent.search_agency = None
+
+    captured = {}
+
+    def fake_transport_tool(message: str, search_query: str = "") -> TransportToolResult:
+        captured["message"] = message
+        captured["search_query"] = search_query
+        return TransportToolResult(
+            available=True,
+            answer="## 推荐直达车次\n- G205 上海虹桥 07:00 -> 杭州东 07:45",
+            source_notes=["来源：中国铁路12306 / 12306 MCP https://www.12306.cn/index/"],
+            tickets=[
+                TrainTicket(
+                    train_code="G205",
+                    from_station="上海虹桥",
+                    to_station="杭州东",
+                    start_time="07:00",
+                    arrive_time="07:45",
+                    duration="00:45",
+                    date="2026-06-28",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.agents.destination_intelligence_agent.agent.search_train_tickets_for_agent",
+        fake_transport_tool,
+    )
+
+    response = agent.execute_search_tool(
+        "train_ticket_query",
+        "上海到杭州 2026-06-28 上午 高铁 直达",
+    )
+
+    assert response.query == "上海到杭州 2026-06-28 上午 高铁 直达"
+    assert response.answer == "## 推荐直达车次\n- G205 上海虹桥 07:00 -> 杭州东 07:45"
+    assert response.results[0].title == "中国铁路12306 / 12306 MCP"
+    assert response.results[0].url == "https://www.12306.cn/index/"
+    assert "G205" in response.results[0].content
+    assert "12306 官方页面为准" in response.results[0].raw_content
+    assert captured == {
+        "message": "上海到杭州 2026-06-28 上午 高铁 直达",
+        "search_query": "上海到杭州 2026-06-28 上午 高铁 直达",
+    }
+
+
 def test_invalid_search_response_falls_back_to_trip_specific_query() -> None:
     node = FirstSearchNode(FakeLLM("not json"))
 
@@ -140,6 +203,195 @@ def test_invalid_reflection_summary_keeps_last_good_summary() -> None:
     )
 
     assert updated.paragraphs[paragraph_index].research.latest_summary == "已核实的原始行程"
+
+
+def test_initial_search_records_source_usage_and_trace(monkeypatch) -> None:
+    agent = object.__new__(DestinationIntelligenceAgent)
+    agent.config = SimpleNamespace(SEARCH_CONTENT_MAX_LENGTH=500)
+    agent.state = State(query="2026年7月厦门旅行")
+    paragraph_index = agent.state.add_paragraph("交通与住宿", "核查交通与住宿")
+    agent.first_search_node = SimpleNamespace(
+        run=lambda _input: {
+            "search_query": "厦门 交通 官方",
+            "search_tool": "basic_search_news",
+            "reasoning": "核查官方交通",
+        }
+    )
+
+    class SummaryNode:
+        def mutate_state(self, input_data, state, paragraph_index):
+            assert "来源补充说明" in "\n".join(input_data["search_results"])
+            state.paragraphs[paragraph_index].research.latest_summary = "已核查厦门交通"
+            return state
+
+    agent.first_summary_node = SummaryNode()
+
+    response = SimpleNamespace(
+        results=[
+            SimpleNamespace(
+                title="厦门交通",
+                url="https://example.com/transport",
+                content="简短摘要",
+                raw_content="简短摘要\n来源补充说明",
+                score=0.9,
+                published_date="2026-06-20",
+            )
+        ]
+    )
+    agent.execute_search_tool = lambda *_args, **_kwargs: response
+
+    agent._initial_search_and_summary(paragraph_index)
+
+    search = agent.state.paragraphs[0].research.search_history[0]
+    trace = agent.state.paragraphs[0].research.trace_steps[0]
+    assert search.step_id == "p1-initial"
+    assert search.raw_content == "简短摘要\n来源补充说明"
+    assert search.used_in_summary is True
+    assert trace.step_id == "p1-initial"
+    assert trace.evidence_count == 1
+    assert trace.summary_after == "已核查厦门交通"
+
+
+def test_train_ticket_reflection_skips_unmarked_section() -> None:
+    agent = object.__new__(DestinationIntelligenceAgent)
+    agent.state = State(query="大理丽江香格里拉 2026年7月旅行")
+    paragraph_index = agent.state.add_paragraph(
+        "候选景点",
+        "整理景点",
+        requires_12306_mcp=False,
+    )
+    agent.state.paragraphs[paragraph_index].research.latest_summary = (
+        "⚠ 大理→丽江具体车次待12306确认"
+    )
+    agent.llm_client = FakeLLM(
+        '{"needs_query":true,"search_query":"大理到丽江 2026-07-18 中午 高铁","reasoning":"需要查询"}'
+    )
+    agent.execute_search_tool = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("不应查询未标记小节")
+    )
+
+    agent._maybe_run_train_ticket_reflection(paragraph_index)
+
+    assert agent.state.paragraphs[paragraph_index].research.search_history == []
+
+
+def test_train_ticket_reflection_skips_when_llm_finds_no_gap() -> None:
+    agent = object.__new__(DestinationIntelligenceAgent)
+    agent.state = State(query="大理丽江香格里拉 2026年7月旅行")
+    paragraph_index = agent.state.add_paragraph(
+        "跨市交通、市内交通与住宿",
+        "核查跨市交通",
+        requires_12306_mcp=True,
+    )
+    agent.state.paragraphs[paragraph_index].research.latest_summary = "铁路车次已确认。"
+    agent.llm_client = FakeLLM(
+        '{"needs_query":false,"search_query":"","reasoning":"没有待确认铁路缺口"}'
+    )
+    agent.execute_search_tool = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("不应查询无缺口小节")
+    )
+
+    agent._maybe_run_train_ticket_reflection(paragraph_index)
+
+    assert agent.state.paragraphs[paragraph_index].research.search_history == []
+
+
+def test_train_ticket_reflection_queries_12306_and_updates_summary() -> None:
+    agent = object.__new__(DestinationIntelligenceAgent)
+    agent.config = SimpleNamespace(SEARCH_CONTENT_MAX_LENGTH=1000)
+    agent.state = State(query="大理、丽江、香格里拉 2026-07-15 至 2026-07-25")
+    paragraph_index = agent.state.add_paragraph(
+        "跨市交通、市内交通与住宿",
+        "核查跨市铁路与住宿",
+        requires_12306_mcp=True,
+    )
+    agent.state.paragraphs[paragraph_index].research.latest_summary = (
+        "⚠ 大理→丽江具体车次待12306确认"
+    )
+    agent.llm_client = FakeLLM(
+        '{"needs_query":true,'
+        '"search_query":"大理到丽江 2026-07-18 中午 高铁 直达",'
+        '"reasoning":"跨市铁路车次待确认"}'
+    )
+
+    captured = {}
+
+    def fake_execute_search_tool(tool_name: str, query: str, **_kwargs):
+        captured["tool_name"] = tool_name
+        captured["query"] = query
+        return TavilyResponse(
+            query=query,
+            answer="## 推荐直达车次\n- D8123 大理 12:10 -> 丽江 13:40",
+            results=[
+                SearchResult(
+                    title="中国铁路12306 / 12306 MCP",
+                    url="https://www.12306.cn/index/",
+                    content="D8123 大理 12:10 -> 丽江 13:40",
+                    raw_content="12306 MCP 返回多趟车次，最终购票以 12306 官方页面为准。",
+                    score=1.0,
+                )
+            ],
+        )
+
+    agent.execute_search_tool = fake_execute_search_tool
+
+    class SummaryNode:
+        def mutate_state(self, input_data, state, paragraph_index):
+            assert "中国铁路12306 / 12306 MCP" in "\n".join(input_data["search_results"])
+            assert input_data["search_query"] == "大理到丽江 2026-07-18 中午 高铁 直达"
+            state.paragraphs[paragraph_index].research.latest_summary = (
+                "推荐 D8123，大理 12:10 出发，最终购票以 12306 为准。"
+            )
+            return state
+
+    agent.reflection_summary_node = SummaryNode()
+
+    agent._maybe_run_train_ticket_reflection(paragraph_index)
+
+    paragraph = agent.state.paragraphs[paragraph_index]
+    assert captured == {
+        "tool_name": "train_ticket_query",
+        "query": "大理到丽江 2026-07-18 中午 高铁 直达",
+    }
+    assert "D8123" in paragraph.research.latest_summary
+    assert paragraph.research.search_history[0].title == "中国铁路12306 / 12306 MCP"
+    assert paragraph.research.search_history[0].step_id == "p1-train-ticket-reflection"
+    assert paragraph.research.trace_steps[0].phase == "train_ticket_reflection"
+    assert paragraph.research.trace_steps[0].search_tool == "train_ticket_query"
+
+
+def test_train_ticket_reflection_records_failed_query_without_rewriting_summary() -> None:
+    agent = object.__new__(DestinationIntelligenceAgent)
+    agent.config = SimpleNamespace(SEARCH_CONTENT_MAX_LENGTH=1000)
+    agent.state = State(query="大理、丽江、香格里拉 2026-07-15 至 2026-07-25")
+    paragraph_index = agent.state.add_paragraph(
+        "跨市交通、市内交通与住宿",
+        "核查跨市铁路与住宿",
+        requires_12306_mcp=True,
+    )
+    original_summary = "⚠ 大理→丽江具体车次待12306确认"
+    agent.state.paragraphs[paragraph_index].research.latest_summary = original_summary
+    agent.llm_client = FakeLLM(
+        '{"needs_query":true,'
+        '"search_query":"大理到丽江 2026-07-18 中午 高铁 直达",'
+        '"reasoning":"跨市铁路车次待确认"}'
+    )
+    agent.execute_search_tool = lambda *_args, **_kwargs: TavilyResponse(
+        query="大理到丽江 2026-07-18 中午 高铁 直达",
+        results=[],
+    )
+    agent.reflection_summary_node = SimpleNamespace(
+        mutate_state=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("失败查询不应重写总结")
+        )
+    )
+
+    agent._maybe_run_train_ticket_reflection(paragraph_index)
+
+    paragraph = agent.state.paragraphs[paragraph_index]
+    assert paragraph.research.latest_summary == original_summary
+    assert paragraph.research.search_history == []
+    assert paragraph.research.trace_steps[0].fallback_reason == "12306 MCP 未返回可用车次证据。"
 
 
 def test_invalid_first_summary_contract_falls_back_to_search_digest() -> None:

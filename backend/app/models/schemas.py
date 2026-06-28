@@ -6,22 +6,39 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+MAX_TRIP_DAYS = 31
+MAX_TEXT_LENGTH = 2000
+MAX_LIST_ITEMS = 20
+MAX_CHAT_HISTORY_ITEMS = 20
+MAX_CHAT_MESSAGE_LENGTH = 4000
+
+
 class TripRequest(BaseModel):
     """用于生成新行程的请求体。"""
 
-    destination: str = Field(..., description="目的地，例如大理")
+    origin: str = Field(default="待补充", min_length=1, max_length=100, description="出发地，例如北京")
+    destination: str = Field(..., min_length=1, max_length=100, description="目的地，例如大理")
     start_date: DateType = Field(..., description="出行开始日期")
     end_date: DateType = Field(..., description="出行结束日期")
     travelers: int = Field(..., ge=1, description="出行人数")
     budget: float = Field(..., ge=0, description="总预算")
-    preferences: list[str] = Field(default_factory=list, description="旅行偏好标签")
-    pace: str | None = Field(default=None, description="旅行节奏，例如轻松、适中、紧凑")
+    preferences: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_LIST_ITEMS,
+        description="旅行偏好标签",
+    )
+    pace: str | None = Field(
+        default=None,
+        max_length=50,
+        description="旅行节奏，例如轻松、适中、紧凑",
+    )
     dietary_preferences: list[str] = Field(
         default_factory=list,
+        max_length=MAX_LIST_ITEMS,
         description="饮食偏好或忌口",
     )
-    hotel_level: str | None = Field(default=None, description="酒店档次偏好")
-    special_notes: str | None = Field(default=None, description="额外要求")
+    hotel_level: str | None = Field(default=None, max_length=50, description="酒店档次偏好")
+    special_notes: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH, description="额外要求")
     deep_planning_reflection_rounds: int = Field(
         default=2,
         ge=0,
@@ -38,18 +55,21 @@ class TripRequest(BaseModel):
         """拒绝结束日期早于开始日期的无效请求。"""
         if self.end_date < self.start_date:
             raise ValueError("end_date must be greater than or equal to start_date")
+        if (self.end_date - self.start_date).days + 1 > MAX_TRIP_DAYS:
+            raise ValueError(f"trip duration must be {MAX_TRIP_DAYS} days or less")
         return self
 
 
 class TripEditRequest(BaseModel):
     """用于修改已有行程的请求体。"""
 
-    trip_id: str = Field(..., description="需要编辑的行程 ID")
+    trip_id: str = Field(..., min_length=1, max_length=128, description="需要编辑的行程 ID")
     current_itinerary: "Itinerary" = Field(..., description="当前完整 itinerary")
-    user_instruction: str = Field(..., description="用户新的修改要求")
-    edit_scope: str | None = Field(default=None, description="编辑范围")
+    user_instruction: str = Field(..., min_length=1, max_length=MAX_TEXT_LENGTH, description="用户新的修改要求")
+    edit_scope: str | None = Field(default=None, max_length=100, description="编辑范围")
     preserve_constraints: list[str] = Field(
         default_factory=list,
+        max_length=MAX_LIST_ITEMS,
         description="需要尽量保留的条件",
     )
 
@@ -57,7 +77,7 @@ class TripEditRequest(BaseModel):
 class TripSaveRequest(BaseModel):
     """用于保存当前 itinerary 的请求体。"""
 
-    trip_id: str = Field(..., description="需要保存的行程 ID")
+    trip_id: str = Field(..., min_length=1, max_length=128, description="需要保存的行程 ID")
     itinerary: "Itinerary" = Field(..., description="完整行程数据")
     user_id: str | None = Field(default=None, description="用户 ID，当前版本可留空")
 
@@ -352,15 +372,16 @@ class ItineraryConversionMeta(BaseModel):
 class Itinerary(BaseModel):
     """完整行程。"""
 
-    trip_id: str = Field(..., description="行程唯一标识")
-    destination: str = Field(..., description="目的地")
-    summary: str = Field(..., description="整趟行程的概述")
+    trip_id: str = Field(..., min_length=1, max_length=128, description="行程唯一标识")
+    destination: str = Field(..., min_length=1, max_length=100, description="目的地")
+    summary: str = Field(..., max_length=MAX_TEXT_LENGTH, description="整趟行程的概述")
     days: list[DayPlan] = Field(default_factory=list, description="逐日行程")
     estimated_budget: float = Field(default=0.0, ge=0, description="预算总计")
     budget_breakdown: BudgetBreakdown = Field(..., description="预算明细")
-    tips: list[str] = Field(default_factory=list, description="旅行建议")
+    tips: list[str] = Field(default_factory=list, max_length=100, description="旅行建议")
     source_notes: list[str] = Field(
         default_factory=list,
+        max_length=100,
         description="RAG 或规则生成产生的补充说明",
     )
     overview_facts: list[ItineraryOverviewFact] = Field(
@@ -382,18 +403,43 @@ class DeepPlanSource(BaseModel):
 
     section_title: str = Field(default="", description="来源所属研究章节")
     query: str = Field(default="", description="产生该来源的搜索查询")
+    step_id: str = Field(default="", description="产生该来源的研究步骤 ID")
     title: str = Field(default="", description="来源标题")
     url: str = Field(default="", description="来源链接")
     content: str = Field(default="", description="来源摘要内容")
+    raw_content: str | None = Field(default=None, description="来源原始或更完整内容")
+    used_in_summary: bool = Field(default=False, description="该来源是否进入总结提示词")
     score: float | None = Field(default=None, description="搜索相关度")
     published_date: str | None = Field(default=None, description="来源发布日期")
+
+
+class DeepPlanResearchTraceStep(BaseModel):
+    """深度规划每轮研究的结构化审计记录。"""
+
+    step_id: str = Field(default="", description="研究步骤稳定 ID")
+    phase: str = Field(default="", description="研究阶段 initial/reflection/final")
+    section_title: str = Field(default="", description="所属研究章节")
+    search_query: str = Field(default="", description="本轮搜索查询")
+    search_tool: str = Field(default="", description="本轮搜索工具")
+    reasoning: str = Field(default="", description="搜索计划理由")
+    summary_before: str = Field(default="", description="本轮前摘要")
+    summary_after: str = Field(default="", description="本轮后摘要")
+    evidence_count: int = Field(default=0, ge=0, description="进入提示词的来源数量")
+    prompt_chars: int = Field(default=0, ge=0, description="本轮提示词估算字符数")
+    estimated_prompt_tokens: int = Field(default=0, ge=0, description="本轮提示词估算 token")
+    fallback_reason: str = Field(default="", description="解析失败或兜底原因")
+    timestamp: str = Field(default="", description="记录时间")
 
 
 class DeepPlanDocument(BaseModel):
     """可直接供 Web 深度规划详情页消费的 JSON 文档。"""
 
-    markdown: str = Field(..., description="完整旅行攻略 Markdown")
+    markdown: str = Field(..., max_length=500_000, description="完整旅行攻略 Markdown")
     sources: list[DeepPlanSource] = Field(default_factory=list, description="结构化研究来源")
+    research_trace: list[DeepPlanResearchTraceStep] = Field(
+        default_factory=list,
+        description="结构化研究过程轨迹",
+    )
 
 
 class TripDetailResponse(BaseModel):
@@ -454,7 +500,7 @@ class ChatbotConversationMessage(BaseModel):
     """聊天机器人历史消息。"""
 
     role: Literal["user", "assistant"] = Field(..., description="消息角色")
-    content: str = Field(..., description="消息内容")
+    content: str = Field(..., max_length=MAX_CHAT_MESSAGE_LENGTH, description="消息内容")
 
 
 class TravelerProfile(BaseModel):
@@ -464,14 +510,14 @@ class TravelerProfile(BaseModel):
         default=None,
         description="用户偏好的旅行节奏",
     )
-    food_preferences: list[str] = Field(default_factory=list, description="饮食偏好或忌口")
-    avoidances: list[str] = Field(default_factory=list, description="希望避免的安排")
-    interests: list[str] = Field(default_factory=list, description="旅行兴趣点")
+    food_preferences: list[str] = Field(default_factory=list, max_length=MAX_LIST_ITEMS, description="饮食偏好或忌口")
+    avoidances: list[str] = Field(default_factory=list, max_length=MAX_LIST_ITEMS, description="希望避免的安排")
+    interests: list[str] = Field(default_factory=list, max_length=MAX_LIST_ITEMS, description="旅行兴趣点")
     budget_sensitivity: Literal["高", "中", "低"] | None = Field(
         default=None,
         description="用户对预算的敏感程度",
     )
-    confirmed_facts: list[str] = Field(default_factory=list, description="用户明确确认过的信息")
+    confirmed_facts: list[str] = Field(default_factory=list, max_length=MAX_LIST_ITEMS, description="用户明确确认过的信息")
 
 
 class ChatbotSearchSource(BaseModel):
@@ -502,13 +548,14 @@ class ChatbotResearchStep(BaseModel):
 class ChatbotMessageRequest(BaseModel):
     """ChatUI 发送给后端 agent 的请求。"""
 
-    message: str = Field(..., min_length=1, description="用户当前消息")
-    trip_id: str | None = Field(default=None, description="当前结果页行程 ID")
+    message: str = Field(..., min_length=1, max_length=MAX_CHAT_MESSAGE_LENGTH, description="用户当前消息")
+    trip_id: str | None = Field(default=None, max_length=128, description="当前结果页行程 ID")
     current_itinerary: Itinerary | None = Field(default=None, description="当前结果页 itinerary")
     profile: TravelerProfile = Field(default_factory=TravelerProfile, description="前端本地保存的旅行偏好画像")
-    conversation_summary: str = Field(default="", description="前端本地保存的短期对话摘要")
+    conversation_summary: str = Field(default="", max_length=MAX_TEXT_LENGTH, description="前端本地保存的短期对话摘要")
     history: list[ChatbotConversationMessage] = Field(
         default_factory=list,
+        max_length=MAX_CHAT_HISTORY_ITEMS,
         description="最近对话历史",
     )
 

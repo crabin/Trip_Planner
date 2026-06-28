@@ -6,9 +6,13 @@ Deep Search Agent主类
 import os
 from pathlib import Path
 import re
+import json
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
+
+from app.agents.tools.transport_tool import search_train_tickets_for_agent
+from app.integrations.web_search import SearchResult
 
 from .graph import run_destination_research_graph
 from .llms import LLMClient
@@ -20,9 +24,15 @@ from .nodes import (
     ReflectionSummaryNode,
     ReportFormattingNode
 )
-from .state import State
+from .prompts import SYSTEM_PROMPT_TRAIN_TICKET_REFLECTION
+from .state import ResearchTraceStep, State
 from .tools import FallbackWebSearchAgency, TavilyResponse
 from .utils import Settings, format_search_results_for_prompt
+from .utils.text_processing import (
+    clean_json_tags,
+    extract_clean_response,
+    remove_reasoning_from_output,
+)
 from loguru import logger
 
 
@@ -35,6 +45,64 @@ def _write_text_atomic(path: Path, content: str) -> None:
         temporary_path.replace(path)
     finally:
         temporary_path.unlink(missing_ok=True)
+
+
+def _train_ticket_response_for_destination_query(query: str) -> TavilyResponse:
+    result = search_train_tickets_for_agent(query, search_query=query)
+    if not result.available:
+        return TavilyResponse(
+            query=query,
+            answer=None,
+            results=[
+                SearchResult(
+                    title="中国铁路12306 / 12306 MCP 查询未完成",
+                    url="https://www.12306.cn/index/",
+                    content=f"12306 实时铁路查询未完成：{result.error_message}",
+                    raw_content="铁路余票、票价和可购买状态需在出发前以 12306 官方页面复核。",
+                    score=1.0,
+                )
+            ],
+        )
+    content = "\n".join(
+        [
+            result.answer,
+            *result.source_notes,
+            "铁路余票、票价和可购买状态变化很快，最终购票、锁票和候补以 12306 官方页面为准。",
+        ]
+    )
+    return TavilyResponse(
+        query=query,
+        answer=result.answer,
+        results=[
+            SearchResult(
+                title="中国铁路12306 / 12306 MCP",
+                url="https://www.12306.cn/index/",
+                content=result.answer,
+                raw_content=content,
+                score=1.0,
+            )
+        ],
+    )
+
+
+def _parse_train_ticket_reflection_output(output: str) -> dict[str, Any]:
+    cleaned = clean_json_tags(remove_reasoning_from_output(output))
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        payload = extract_clean_response(cleaned)
+    if not isinstance(payload, dict) or "error" in payload:
+        return {
+            "needs_query": False,
+            "search_query": "",
+            "reasoning": "铁路专用反思输出无效，跳过 12306 MCP 查询。",
+        }
+    return {
+        "needs_query": bool(payload.get("needs_query", False)),
+        "search_query": str(payload.get("search_query") or "").strip(),
+        "reasoning": str(payload.get("reasoning") or "").strip(),
+    }
+
 
 class DestinationIntelligenceAgent:
     """Destination Intelligence Agent主类"""
@@ -91,6 +159,202 @@ class DestinationIntelligenceAgent:
         self.first_summary_node = FirstSummaryNode(self.llm_client)
         self.reflection_summary_node = ReflectionSummaryNode(self.llm_client)
         self.report_formatting_node = ReportFormattingNode(self.llm_client)
+
+    @staticmethod
+    def _estimate_tokens_for_chars(char_count: int) -> int:
+        """Cheap production-safe estimate used only for run diagnostics."""
+        return max(0, round(char_count * 0.75))
+
+    @staticmethod
+    def _compact_text(text: str, limit: int = 1200) -> str:
+        cleaned = str(text or "").strip()
+        if len(cleaned) <= limit:
+            return cleaned
+        return cleaned[:limit].rstrip() + "..."
+
+    def _build_evidence_digest(self, paragraph_index: int, *, limit: int = 8000) -> list[str]:
+        paragraph = self.state.paragraphs[paragraph_index]
+        evidence: list[str] = []
+        for search in paragraph.research.search_history:
+            content = search.raw_content or search.content
+            if not content:
+                continue
+            item = {
+                "title": search.title,
+                "url": search.url,
+                "content": content,
+                "published_date": search.published_date,
+                "score": search.score,
+            }
+            evidence.append(
+                format_search_results_for_prompt(
+                    [item],
+                    max(400, limit // max(1, len(paragraph.research.search_history))),
+                )[0]
+            )
+        digest = "\n\n".join(evidence)
+        if len(digest) <= limit:
+            return evidence
+        return [self._compact_text(digest, limit)]
+
+    def _build_source_index(self, paragraph_index: int) -> list[dict[str, Any]]:
+        paragraph = self.state.paragraphs[paragraph_index]
+        return [
+            {
+                "step_id": search.step_id,
+                "title": search.title,
+                "url": search.url,
+                "published_date": search.published_date,
+                "used_in_summary": search.used_in_summary,
+            }
+            for search in paragraph.research.search_history
+        ]
+
+    def _append_trace_step(
+        self,
+        paragraph_index: int,
+        *,
+        step_id: str,
+        phase: str,
+        search_query: str,
+        search_tool: str,
+        reasoning: str,
+        summary_before: str,
+        summary_after: str,
+        formatted_results: list[str],
+        fallback_reason: str = "",
+    ) -> None:
+        paragraph = self.state.paragraphs[paragraph_index]
+        prompt_chars = (
+            len(self.state.query)
+            + len(paragraph.title)
+            + len(paragraph.content)
+            + len(search_query)
+            + len(summary_before)
+            + sum(len(item) for item in formatted_results)
+        )
+        paragraph.research.trace_steps.append(
+            ResearchTraceStep(
+                step_id=step_id,
+                phase=phase,
+                section_title=paragraph.title,
+                search_query=search_query,
+                search_tool=search_tool,
+                reasoning=reasoning,
+                summary_before=self._compact_text(summary_before),
+                summary_after=self._compact_text(summary_after),
+                evidence_count=len(formatted_results),
+                prompt_chars=prompt_chars,
+                estimated_prompt_tokens=self._estimate_tokens_for_chars(prompt_chars),
+                fallback_reason=fallback_reason,
+            )
+        )
+
+    @staticmethod
+    def _search_results_from_response(search_response: TavilyResponse | None) -> list[dict[str, Any]]:
+        search_results: list[dict[str, Any]] = []
+        if search_response and search_response.results:
+            max_results = min(len(search_response.results), 10)
+            for result in search_response.results[:max_results]:
+                search_results.append({
+                    "title": result.title,
+                    "url": result.url,
+                    "content": result.content,
+                    "score": result.score,
+                    "raw_content": result.raw_content,
+                    "published_date": result.published_date,
+                })
+        return search_results
+
+    def _maybe_run_train_ticket_reflection(self, paragraph_index: int) -> None:
+        paragraph = self.state.paragraphs[paragraph_index]
+        if not paragraph.requires_12306_mcp:
+            return
+
+        reflection_input = {
+            "trip_context": self.state.query,
+            "title": paragraph.title,
+            "content": paragraph.content,
+            "paragraph_latest_state": paragraph.research.latest_summary,
+        }
+        raw_output = self.llm_client.stream_invoke_to_string(
+            SYSTEM_PROMPT_TRAIN_TICKET_REFLECTION,
+            json.dumps(reflection_input, ensure_ascii=False),
+        )
+        plan = _parse_train_ticket_reflection_output(raw_output)
+        search_query = plan["search_query"]
+        reasoning = plan["reasoning"]
+        if not plan["needs_query"] or not search_query:
+            logger.info("  - 12306 专用反思未发现需要查询的铁路缺口")
+            return
+
+        logger.info(f"  - 12306 专用反思查询: {search_query}")
+        step_id = f"p{paragraph_index + 1}-train-ticket-reflection"
+        summary_before = paragraph.research.latest_summary
+        search_response = self.execute_search_tool("train_ticket_query", search_query)
+        search_results = self._search_results_from_response(search_response)
+        formatted_results = format_search_results_for_prompt(
+            search_results,
+            self.config.SEARCH_CONTENT_MAX_LENGTH,
+        )
+
+        if not formatted_results:
+            self._append_trace_step(
+                paragraph_index,
+                step_id=step_id,
+                phase="train_ticket_reflection",
+                search_query=search_query,
+                search_tool="train_ticket_query",
+                reasoning=reasoning,
+                summary_before=summary_before,
+                summary_after=summary_before,
+                formatted_results=[],
+                fallback_reason="12306 MCP 未返回可用车次证据。",
+            )
+            return
+
+        paragraph.research.add_search_results(
+            search_query,
+            search_results,
+            step_id=step_id,
+            used_in_summary=True,
+        )
+        reflection_summary_input = {
+            "trip_context": self.state.query,
+            "title": paragraph.title,
+            "content": (
+                f"{paragraph.content}\n\n"
+                "本轮是 12306 MCP 铁路车次专用反思：请从返回的多趟车次中选择最适合"
+                "旅行节奏、不过早出发、当天行程衔接顺畅的 2-4 趟，写入本小节；"
+                "同时保留最终购票、余票、票价以 12306 官方页面为准。"
+            ),
+            "search_query": search_query,
+            "search_results": formatted_results,
+            "evidence_digest": self._build_evidence_digest(paragraph_index),
+            "source_index": self._build_source_index(paragraph_index),
+            "paragraph_latest_state": summary_before,
+        }
+        self.state = self.reflection_summary_node.mutate_state(
+            reflection_summary_input,
+            self.state,
+            paragraph_index,
+        )
+        summary_after = self.state.paragraphs[paragraph_index].research.latest_summary
+        fallback_reason = ""
+        if summary_after == summary_before:
+            fallback_reason = "12306 反思总结未更新，已保留上一版总结；本轮证据仍保存在研究轨迹和来源中。"
+        self._append_trace_step(
+            paragraph_index,
+            step_id=step_id,
+            phase="train_ticket_reflection",
+            search_query=search_query,
+            search_tool="train_ticket_query",
+            reasoning=reasoning,
+            summary_before=summary_before,
+            summary_after=summary_after,
+            formatted_results=formatted_results,
+            fallback_reason=fallback_reason,
+        )
     
     def _validate_date_format(self, date_str: str) -> bool:
         """
@@ -129,6 +393,7 @@ class DestinationIntelligenceAgent:
                 - "search_news_last_week": 本周最新信息
                 - "search_images_for_news": 目的地图片搜索
                 - "search_news_by_date": 按来源发布日期搜索信息
+                - "train_ticket_query": 12306 MCP 铁路实时余票查询
             query: 搜索查询
             **kwargs: 额外参数（如start_date, end_date, max_results）
             
@@ -154,6 +419,8 @@ class DestinationIntelligenceAgent:
             if not start_date or not end_date:
                 raise ValueError("search_news_by_date工具需要start_date和end_date参数")
             return self.search_agency.search_news_by_date(query, start_date, end_date)
+        elif tool_name == "train_ticket_query":
+            return _train_ticket_response_for_destination_query(query)
         else:
             logger.warning(f"  ⚠️  未知的搜索工具: {tool_name}，使用默认基础搜索")
             return self.search_agency.basic_search_news(query)
@@ -292,20 +559,7 @@ class DestinationIntelligenceAgent:
         
         search_response = self.execute_search_tool(search_tool, search_query, **search_kwargs)
         
-        # 转换为兼容格式
-        search_results = []
-        if search_response and search_response.results:
-            # 每种搜索工具都有其特定的结果数量，这里取前10个作为上限
-            max_results = min(len(search_response.results), 10)
-            for result in search_response.results[:max_results]:
-                search_results.append({
-                    'title': result.title,
-                    'url': result.url,
-                    'content': result.content,
-                    'score': result.score,
-                    'raw_content': result.raw_content,
-                    'published_date': result.published_date  # 新增字段
-                })
+        search_results = self._search_results_from_response(search_response)
         
         if search_results:
             _message = f"  - 找到 {len(search_results)} 个搜索结果"
@@ -316,23 +570,43 @@ class DestinationIntelligenceAgent:
         else:
             logger.info("  - 未找到搜索结果")
         # 更新状态中的搜索历史
-        paragraph.research.add_search_results(search_query, search_results)
+        step_id = f"p{paragraph_index + 1}-initial"
+        paragraph.research.add_search_results(
+            search_query,
+            search_results,
+            step_id=step_id,
+            used_in_summary=True,
+        )
         
         # 生成初始总结
         logger.info("  - 生成初始总结...")
+        formatted_results = format_search_results_for_prompt(
+            search_results, self.config.SEARCH_CONTENT_MAX_LENGTH
+        )
         summary_input = {
             "trip_context": self.state.query,
             "title": paragraph.title,
             "content": paragraph.content,
             "search_query": search_query,
-            "search_results": format_search_results_for_prompt(
-                search_results, self.config.SEARCH_CONTENT_MAX_LENGTH
-            )
+            "search_results": formatted_results,
+            "evidence_digest": formatted_results,
+            "source_index": self._build_source_index(paragraph_index),
         }
         
         # 更新状态
         self.state = self.first_summary_node.mutate_state(
             summary_input, self.state, paragraph_index
+        )
+        self._append_trace_step(
+            paragraph_index,
+            step_id=step_id,
+            phase="initial",
+            search_query=search_query,
+            search_tool=search_tool,
+            reasoning=reasoning,
+            summary_before="",
+            summary_after=self.state.paragraphs[paragraph_index].research.latest_summary,
+            formatted_results=formatted_results,
         )
         
         logger.info("  - 初始总结完成")
@@ -385,20 +659,7 @@ class DestinationIntelligenceAgent:
             
             search_response = self.execute_search_tool(search_tool, search_query, **search_kwargs)
             
-            # 转换为兼容格式
-            search_results = []
-            if search_response and search_response.results:
-                # 每种搜索工具都有其特定的结果数量，这里取前10个作为上限
-                max_results = min(len(search_response.results), 10)
-                for result in search_response.results[:max_results]:
-                    search_results.append({
-                        'title': result.title,
-                        'url': result.url,
-                        'content': result.content,
-                        'score': result.score,
-                        'raw_content': result.raw_content,
-                        'published_date': result.published_date
-                    })
+            search_results = self._search_results_from_response(search_response)
             
             if search_results:
                 logger.info(f"    找到 {len(search_results)} 个反思搜索结果")
@@ -409,26 +670,54 @@ class DestinationIntelligenceAgent:
                 logger.info("    未找到反思搜索结果")
             
             # 更新搜索历史
-            paragraph.research.add_search_results(search_query, search_results)
+            step_id = f"p{paragraph_index + 1}-reflection-{reflection_i + 1}"
+            paragraph.research.add_search_results(
+                search_query,
+                search_results,
+                step_id=step_id,
+                used_in_summary=True,
+            )
             
             # 生成反思总结
+            summary_before = paragraph.research.latest_summary
+            formatted_results = format_search_results_for_prompt(
+                search_results, self.config.SEARCH_CONTENT_MAX_LENGTH
+            )
             reflection_summary_input = {
                 "trip_context": self.state.query,
                 "title": paragraph.title,
                 "content": paragraph.content,
                 "search_query": search_query,
-                "search_results": format_search_results_for_prompt(
-                    search_results, self.config.SEARCH_CONTENT_MAX_LENGTH
-                ),
-                "paragraph_latest_state": paragraph.research.latest_summary
+                "search_results": formatted_results,
+                "evidence_digest": self._build_evidence_digest(paragraph_index),
+                "source_index": self._build_source_index(paragraph_index),
+                "paragraph_latest_state": summary_before
             }
             
             # 更新状态
             self.state = self.reflection_summary_node.mutate_state(
                 reflection_summary_input, self.state, paragraph_index
             )
+            summary_after = self.state.paragraphs[paragraph_index].research.latest_summary
+            fallback_reason = ""
+            if summary_after == summary_before and formatted_results:
+                fallback_reason = "反思总结未更新，已保留上一版总结；本轮证据仍保存在研究轨迹和来源中。"
+            self._append_trace_step(
+                paragraph_index,
+                step_id=step_id,
+                phase="reflection",
+                search_query=search_query,
+                search_tool=search_tool,
+                reasoning=reasoning,
+                summary_before=summary_before,
+                summary_after=summary_after,
+                formatted_results=formatted_results,
+                fallback_reason=fallback_reason,
+            )
             
             logger.info(f"    反思 {reflection_i + 1} 完成")
+
+        self._maybe_run_train_ticket_reflection(paragraph_index)
     
     def _generate_final_report(self) -> str:
         """生成最终报告"""
@@ -437,9 +726,12 @@ class DestinationIntelligenceAgent:
         # 准备报告数据
         sections = []
         for paragraph in self.state.paragraphs:
+            paragraph_index = paragraph.order
             sections.append({
                 "title": paragraph.title,
-                "paragraph_latest_state": paragraph.research.latest_summary
+                "paragraph_latest_state": paragraph.research.latest_summary,
+                "evidence_digest": self._build_evidence_digest(paragraph_index),
+                "source_index": self._build_source_index(paragraph_index),
             })
         report_data = {
             "trip_context": self.state.query,

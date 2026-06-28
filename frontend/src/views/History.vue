@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { message } from "ant-design-vue";
 import { onMounted, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import {
   deleteTrip,
@@ -13,6 +14,7 @@ import {
 import type { Itinerary, TripDetailResponse, TripSummaryItem } from "../types";
 
 const props = defineProps<{ active: boolean }>();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   openTrip: [itinerary: Itinerary];
@@ -30,12 +32,12 @@ function normalizeCardText(value?: string | null) {
 
 function formatStatus(status: TripSummaryItem["status"]) {
   if (status === "generating") {
-    return "正在生成";
+    return t("history.status.generating");
   }
   if (status === "failed") {
-    return "生成失败";
+    return t("history.status.failed");
   }
-  return "已完成";
+  return t("history.status.completed");
 }
 
 function cardDetailTitle(item: TripSummaryItem) {
@@ -47,9 +49,9 @@ function cardDetailTitle(item: TripSummaryItem) {
 
   const dateRange =
     item.start_date && item.end_date
-      ? `${item.start_date} 至 ${item.end_date}`
+      ? t("history.dateRange", { start: item.start_date, end: item.end_date })
       : item.start_date || item.end_date || "";
-  return [dateRange, item.plan_type === "deep" ? "深度规划" : "快速规划", formatStatus(item.status)]
+  return [dateRange, item.plan_type === "deep" ? t("history.planType.deep") : t("history.planType.quick"), formatStatus(item.status)]
     .filter(Boolean)
     .join(" · ");
 }
@@ -81,7 +83,7 @@ async function loadTrips(showLoading = true) {
   } catch (error) {
     console.error(error);
     if (showLoading) {
-      message.error("历史列表加载失败。");
+      message.error(t("history.messages.loadFailed"));
     }
   } finally {
     loading.value = false;
@@ -98,7 +100,7 @@ async function openTrip(item: TripSummaryItem) {
       const response = await getTripDetail(item.trip_id);
       if (response.itinerary) {
         emit("openTrip", response.itinerary);
-        message.success("已加载已保存行程。");
+        message.success(t("history.messages.tripLoaded"));
       }
       return;
     }
@@ -106,25 +108,25 @@ async function openTrip(item: TripSummaryItem) {
     if (item.report_id) {
       const itinerary = await getReportItinerary(item.report_id);
       emit("openTrip", itinerary);
-      message.success("已根据 Report 生成结果页。");
+      message.success(t("history.messages.reportToResult"));
       return;
     }
 
     if (item.plan_type === "deep") {
       const itinerary = await getDeepPlanItinerary(item.trip_id);
       emit("openTrip", itinerary);
-      message.success("已根据深度规划生成结果页。");
+      message.success(t("history.messages.deepToResult"));
       return;
     }
 
     const response = await getTripDetail(item.trip_id);
     if (response.itinerary) {
       emit("openTrip", response.itinerary);
-      message.success("已加载已保存行程。");
+      message.success(t("history.messages.tripLoaded"));
     }
   } catch (error) {
     console.error(error);
-    message.error("读取行程详情失败。");
+    message.error(t("history.messages.detailFailed"));
   }
 }
 
@@ -135,10 +137,10 @@ async function openReport(item: TripSummaryItem) {
   try {
     const response = await getTripReport(item.report_id);
     emit("openDeepPlan", response);
-    message.success("已加载深度规划 Report。");
+    message.success(t("history.messages.reportLoaded"));
   } catch (error) {
     console.error(error);
-    message.error("读取 Report 失败。");
+    message.error(t("history.messages.reportFailed"));
   }
 }
 
@@ -146,7 +148,7 @@ async function removeTrip(item: TripSummaryItem) {
   if (item.status === "generating") {
     return;
   }
-  const confirmed = window.confirm("确定要删除这条行程吗？删除后无法恢复。");
+  const confirmed = window.confirm(t("history.confirmDelete"));
   if (!confirmed) {
     return;
   }
@@ -155,10 +157,10 @@ async function removeTrip(item: TripSummaryItem) {
   try {
     await deleteTrip(item.trip_id);
     items.value = items.value.filter((entry) => entry.trip_id !== item.trip_id);
-    message.success("行程已删除。");
+    message.success(t("history.messages.deleted"));
   } catch (error) {
     console.error(error);
-    message.error("删除行程失败。");
+    message.error(t("history.messages.deleteFailed"));
   } finally {
     deletingTripId.value = "";
     schedulePolling();
@@ -189,23 +191,23 @@ onUnmounted(stopPolling);
   <section class="history-page">
     <div class="history-header">
       <div>
-        <h2>历史行程</h2>
-        <p>快速行程与深度规划会统一显示在这里。</p>
+        <h2>{{ t("history.title") }}</h2>
+        <p>{{ t("history.description") }}</p>
       </div>
-      <button class="refresh-button" @click="loadTrips()">刷新列表</button>
+      <button class="refresh-button" @click="loadTrips()">{{ t("history.refresh") }}</button>
     </div>
 
-    <div v-if="loading" class="history-state">正在加载历史列表...</div>
-    <div v-else-if="items.length === 0" class="history-state">还没有已保存的行程。</div>
+    <div v-if="loading" class="history-state">{{ t("history.loading") }}</div>
+    <div v-else-if="items.length === 0" class="history-state">{{ t("history.empty") }}</div>
 
     <div v-else class="history-grid">
       <article v-for="item in items" :key="item.trip_id" class="history-card">
         <div class="history-card__topline">
           <span class="history-card__kind">
-            {{ item.plan_type === "deep" ? "深度规划" : "快速规划" }}
+            {{ item.plan_type === "deep" ? t("history.planType.deep") : t("history.planType.quick") }}
           </span>
           <span :class="['history-card__status', `history-card__status--${item.status}`]">
-            {{ item.status === "generating" ? "正在生成" : item.status === "failed" ? "生成失败" : "已完成" }}
+            {{ formatStatus(item.status) }}
           </span>
         </div>
         <div class="history-card__destination">
@@ -225,7 +227,9 @@ onUnmounted(stopPolling);
         </div>
         <p v-else class="history-card__summary">{{ item.summary }}</p>
 
-        <div class="history-card__time">更新时间：{{ item.updated_at || "未记录" }}</div>
+        <div class="history-card__time">
+          {{ t("history.updatedAt", { time: item.updated_at || t("history.unknownTime") }) }}
+        </div>
         <div
           :class="[
             'history-card__actions',
@@ -237,21 +241,21 @@ onUnmounted(stopPolling);
             :disabled="!item.has_detail"
             @click="openTrip(item)"
           >
-            查看详情
+            {{ t("history.actions.detail") }}
           </button>
           <button
             v-if="item.has_report"
             class="history-card__button history-card__button--report"
             @click="openReport(item)"
           >
-            查看 Report
+            {{ t("history.actions.report") }}
           </button>
           <button
             class="history-card__button history-card__button--danger"
             :disabled="item.status === 'generating' || deletingTripId === item.trip_id"
             @click="removeTrip(item)"
           >
-            {{ deletingTripId === item.trip_id ? "删除中..." : "删除行程" }}
+            {{ deletingTripId === item.trip_id ? t("history.actions.deleting") : t("history.actions.delete") }}
           </button>
         </div>
       </article>
@@ -260,29 +264,205 @@ onUnmounted(stopPolling);
 </template>
 
 <style scoped>
-.history-page { display: grid; gap: 18px; }
-.history-header { display: flex; justify-content: space-between; align-items: end; gap: 16px; padding: 24px; border-radius: 24px; background: rgba(255, 255, 255, 0.92); box-shadow: 0 22px 55px rgba(98, 116, 164, 0.12); }
-.history-header h2 { margin: 0 0 8px; font-size: 28px; color: #31456a; }
-.history-header p { margin: 0; color: #667085; }
-.refresh-button, .history-card__button { border: none; border-radius: 14px; padding: 12px 16px; background: linear-gradient(135deg, #7386e0 0%, #8f71d8 100%); color: #fff; font-weight: 700; cursor: pointer; }
-.history-state { padding: 28px; border-radius: 24px; background: rgba(255,255,255,.92); box-shadow: 0 22px 55px rgba(98,116,164,.12); color: #667085; text-align: center; }
-.history-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 18px; }
-.history-card { display: grid; gap: 12px; padding: 22px; border-radius: 24px; background: rgba(255,255,255,.92); box-shadow: 0 22px 55px rgba(98,116,164,.12); }
-.history-card__topline { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.history-card__kind { color: #725cc1; font-size: 12px; font-weight: 800; letter-spacing: .04em; }
-.history-card__status { padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-.history-card__status--generating { background: #eef2ff; color: #5b67cb; }
-.history-card__status--completed { background: #ecfdf3; color: #14804a; }
-.history-card__status--failed { background: #fff1f2; color: #c2414b; }
-.history-card__destination { font-size: 24px; font-weight: 800; color: #42558d; }
-.history-card__trip-id { min-height: 34px; color: #8a94a6; font-size: 13px; line-height: 1.5; }
-.history-card__summary, .history-card__progress p { margin: 0; color: #475467; line-height: 1.7; }
-.history-card__summary { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }
-.history-card__time { color: #667085; font-size: 13px; }
-.history-card__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.history-card__actions--three { grid-template-columns: repeat(3, 1fr); }
-.history-card__button--report { background: linear-gradient(135deg, #7259bd, #a062c7); }
-.history-card__button--danger { background: rgba(239,68,68,.12); color: #c2410c; }
-.history-card__button:disabled { opacity: .52; cursor: not-allowed; }
-@media (max-width: 640px) { .history-header { align-items: stretch; flex-direction: column; } .history-card__actions--three { grid-template-columns: 1fr; } }
+.history-page {
+  display: grid;
+  gap: 20px;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid rgba(25, 66, 63, 0.1);
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(240, 246, 242, 0.84)),
+    radial-gradient(circle at 92% 0%, rgba(215, 173, 88, 0.16), transparent 30%);
+  box-shadow: 0 24px 64px rgba(34, 61, 57, 0.1);
+}
+
+.history-header h2 {
+  margin: 0 0 8px;
+  color: #173936;
+  font-family: Georgia, "Times New Roman", "Songti SC", serif;
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.history-header p {
+  margin: 0;
+  color: #63726e;
+  line-height: 1.6;
+}
+
+.refresh-button,
+.history-card__button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #143c38, #1f574f);
+  color: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 14px 28px rgba(20, 60, 56, 0.16);
+}
+
+.refresh-button:hover,
+.history-card__button:hover {
+  background: linear-gradient(135deg, #1f574f, #143c38);
+}
+
+.history-state {
+  padding: 28px;
+  border: 1px solid rgba(25, 66, 63, 0.1);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 22px 55px rgba(34, 61, 57, 0.08);
+  color: #63726e;
+  text-align: center;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 18px;
+}
+
+.history-card {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  overflow: hidden;
+  padding: 22px;
+  border: 1px solid rgba(25, 66, 63, 0.1);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(250, 251, 247, 0.84));
+  box-shadow: 0 22px 55px rgba(34, 61, 57, 0.08);
+}
+
+.history-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, #173936, #d7ad58);
+}
+
+.history-card__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.history-card__kind {
+  color: #8f661f;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.history-card__status {
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.history-card__status--generating {
+  background: rgba(215, 173, 88, 0.16);
+  color: #8f661f;
+}
+
+.history-card__status--completed {
+  background: rgba(20, 60, 56, 0.1);
+  color: #143c38;
+}
+
+.history-card__status--failed {
+  background: rgba(194, 65, 12, 0.1);
+  color: #c2410c;
+}
+
+.history-card__destination {
+  color: #143c38;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.history-card__trip-id {
+  min-height: 34px;
+  color: #63726e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.history-card__summary,
+.history-card__progress p {
+  margin: 0;
+  color: #314844;
+  line-height: 1.7;
+}
+
+.history-card__summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.history-card__time {
+  color: #63726e;
+  font-size: 13px;
+}
+
+.history-card__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.history-card__actions--three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.history-card__button--report {
+  background: linear-gradient(135deg, #d7ad58, #c9983d);
+  color: #241b0c;
+}
+
+.history-card__button--report:hover {
+  background: linear-gradient(135deg, #c9983d, #d7ad58);
+}
+
+.history-card__button--danger {
+  border-color: rgba(194, 65, 12, 0.12);
+  background: rgba(194, 65, 12, 0.1);
+  color: #c2410c;
+  box-shadow: none;
+}
+
+.history-card__button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+:deep(.ant-progress-bg) {
+  background: #143c38 !important;
+}
+
+@media (max-width: 640px) {
+  .history-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .history-card__actions--three {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

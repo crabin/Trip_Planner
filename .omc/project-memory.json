@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1782451923408,
+  "lastScanned": 1782654384092,
   "projectRoot": "/Users/lpb/workspace/myProjects/Trip_Planner",
   "techStack": {
     "languages": [],
@@ -39,14 +39,14 @@
       "path": "assets",
       "purpose": "Static assets",
       "fileCount": 0,
-      "lastAccessed": 1782451923376,
+      "lastAccessed": 1782654384079,
       "keyFiles": []
     },
     "backend": {
       "path": "backend",
       "purpose": null,
       "fileCount": 9,
-      "lastAccessed": 1782451923379,
+      "lastAccessed": 1782654384089,
       "keyFiles": [
         "README.md",
         "main.py",
@@ -58,10 +58,11 @@
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 4,
-      "lastAccessed": 1782451923380,
+      "fileCount": 5,
+      "lastAccessed": 1782654384090,
       "keyFiles": [
         "chatbot_design.md",
+        "chatbot_research_assistant_plan.md",
         "rag-build-and-evaluation-plan.md",
         "trip-generate-flow.md",
         "手把手教你制作旅行攻略.md"
@@ -71,7 +72,7 @@
       "path": "frontend",
       "purpose": null,
       "fileCount": 10,
-      "lastAccessed": 1782451923382,
+      "lastAccessed": 1782654384090,
       "keyFiles": [
         "README.md",
         "index.html",
@@ -80,21 +81,11 @@
         "tsconfig.json"
       ]
     },
-    "backend/app": {
-      "path": "backend/app",
-      "purpose": "Application code",
-      "fileCount": 3,
-      "lastAccessed": 1782451923383,
-      "keyFiles": [
-        "__init__.py",
-        "config.py"
-      ]
-    },
     "frontend/dist": {
       "path": "frontend/dist",
       "purpose": "Distribution/build output",
       "fileCount": 1,
-      "lastAccessed": 1782451923384,
+      "lastAccessed": 1782654384091,
       "keyFiles": [
         "index.html"
       ]
@@ -103,7 +94,7 @@
       "path": "frontend/node_modules",
       "purpose": "Dependencies",
       "fileCount": 2,
-      "lastAccessed": 1782451923384,
+      "lastAccessed": 1782654384092,
       "keyFiles": []
     }
   },
@@ -127,6 +118,12 @@
       "type": "file"
     },
     {
+      "path": "backend/app/config.py",
+      "accessCount": 8,
+      "lastAccessed": 1782480271124,
+      "type": "file"
+    },
+    {
       "path": "frontend/src/views/Home.vue",
       "accessCount": 7,
       "lastAccessed": 1782033468526,
@@ -136,12 +133,6 @@
       "path": "frontend/src/services/api.ts",
       "accessCount": 7,
       "lastAccessed": 1782033579077,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/config.py",
-      "accessCount": 7,
-      "lastAccessed": 1782034166725,
       "type": "file"
     },
     {
@@ -238,6 +229,12 @@
       "path": "backend/app/api/routes/export.py",
       "accessCount": 3,
       "lastAccessed": 1782033510299,
+      "type": "file"
+    },
+    {
+      "path": "backend/app/agents/trip_planner_agent/llms/chat.py",
+      "accessCount": 3,
+      "lastAccessed": 1782480214934,
       "type": "file"
     },
     {
@@ -376,12 +373,6 @@
       "path": "frontend/vite.config.ts",
       "accessCount": 1,
       "lastAccessed": 1778072682563,
-      "type": "file"
-    },
-    {
-      "path": "backend/app/agents/trip_planner_agent/llms/chat.py",
-      "accessCount": 1,
-      "lastAccessed": 1782032335251,
       "type": "file"
     },
     {

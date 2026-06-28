@@ -25,6 +25,7 @@ SEARCH_TOOLS = frozenset(
         "search_news_last_week",
         "search_images_for_news",
         "search_news_by_date",
+        "train_ticket_query",
     }
 )
 

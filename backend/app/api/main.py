@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes.chatbot import router as chatbot_router
 from app.api.routes.export import router as export_router
+from app.api.routes.location import router as location_router
 from app.api.routes.trip import router as trip_router
 from app.api.routes.weather import router as weather_router
 
@@ -46,6 +47,7 @@ app.include_router(trip_router)
 app.include_router(chatbot_router)
 app.include_router(export_router)
 app.include_router(weather_router)
+app.include_router(location_router)
 
 
 if FRONTEND_DIST.is_dir():

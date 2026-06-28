@@ -9,6 +9,7 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from app.agents.tools.transport_tool import search_train_tickets_for_agent
 from app.agents.trip_planner_agent.utils import extract_json_object, response_content_to_text
 from app.integrations.web_search import FallbackWebSearchAgency, TavilyResponse
 from app.models.schemas import (
@@ -19,7 +20,7 @@ from app.models.schemas import (
 )
 from app.services.weather_service import get_weather_forecast
 
-from ..prompts import REALTIME_QUERY_ROUTER_SYSTEM_PROMPT
+from ..prompts import REALTIME_QUERY_ROUTER_SYSTEM_PROMPT, REALTIME_SEARCH_SUMMARY_SYSTEM_PROMPT
 from ..state import IntentDecision
 from ..utils import MAX_SEARCH_RESULTS, format_search_sources
 
@@ -161,6 +162,40 @@ class RealtimeQueryRouter:
         try:
             if kind == "weather":
                 answer, sources = answer_weather(route.search_query or request.message)
+            elif kind == "transport":
+                train_result = search_train_tickets_for_agent(
+                    request.message,
+                    search_query=route.search_query,
+                    llm=self.llm,
+                )
+                if train_result.available:
+                    answer = train_result.answer
+                    sources = [
+                        ChatbotSearchSource(
+                            title="中国铁路12306 / 12306 MCP",
+                            url="https://www.12306.cn/index/",
+                            content="\n".join(train_result.source_notes),
+                        )
+                    ]
+                else:
+                    search_response = self.search_agency.basic_search_news(
+                        running_step.query or route.search_query,
+                        max_results=MAX_SEARCH_RESULTS,
+                    )
+                    sources = format_search_sources(search_response)
+                    answer = (
+                        f"## 12306实时查询未完成\n"
+                        f"- 原因：{train_result.error_message}\n"
+                        "- 已降级使用网页实时搜索整理线索。\n\n"
+                        + answer_from_search(
+                            question=request.message,
+                            query_kind=kind,
+                            response=search_response,
+                            sources=sources,
+                            llm=self.llm,
+                            search_query=running_step.query or route.search_query,
+                        )
+                    )
             else:
                 search_response = self.search_agency.basic_search_news(
                     running_step.query or route.search_query,
@@ -172,6 +207,8 @@ class RealtimeQueryRouter:
                     query_kind=kind,
                     response=search_response,
                     sources=sources,
+                    llm=self.llm,
+                    search_query=running_step.query or route.search_query,
                 )
             completed_step = running_step.model_copy(
                 update={
@@ -324,7 +361,7 @@ def handler_title(kind: RealtimeQueryKind) -> str:
     return {
         "weather": "调用天气服务",
         "scenic_notice": "查询景区官方公告",
-        "transport": "查询交通实时信息",
+        "transport": "查询12306实时余票",
         "ticket": "查询门票和预约信息",
         "business_hours": "查询开放或营业时间",
         "generic_search": "查询实时网页信息",
@@ -386,6 +423,8 @@ def answer_from_search(
     query_kind: RealtimeQueryKind,
     response: TavilyResponse,
     sources: list[ChatbotSearchSource],
+    llm: Any | None = None,
+    search_query: str = "",
 ) -> str:
     if not response.results:
         return (
@@ -395,6 +434,18 @@ def answer_from_search(
             "- 建议换一个更具体的景点、日期或交通方式再查。\n"
             "- 如涉及购票、开放时间或交通班次，请以官方渠道为准。"
         )
+
+    if llm is not None:
+        llm_answer = summarize_realtime_search_with_llm(
+            llm=llm,
+            question=question,
+            query_kind=query_kind,
+            search_query=search_query or response.query,
+            response=response,
+            sources=sources,
+        )
+        if llm_answer:
+            return llm_answer
 
     first = response.results[0]
     content = first.content.strip() or "搜索结果未提供摘要。"
@@ -438,6 +489,59 @@ def answer_from_search(
     )
 
 
+def summarize_realtime_search_with_llm(
+    *,
+    llm: Any,
+    question: str,
+    query_kind: RealtimeQueryKind,
+    search_query: str,
+    response: TavilyResponse,
+    sources: list[ChatbotSearchSource],
+) -> str | None:
+    evidence_sources = []
+    for index, source in enumerate(sources[:6], start=1):
+        content = (source.content or source.raw_content or "").strip()
+        if len(content) > 700:
+            content = f"{content[:700]}..."
+        evidence_sources.append(
+            {
+                "index": index,
+                "title": source.title,
+                "url": source.url,
+                "content": content,
+                "published_date": source.published_date,
+            }
+        )
+
+    payload = {
+        "question": question,
+        "query_kind": query_kind,
+        "search_query": search_query or response.query,
+        "reliability": {
+            "has_reliable_source": has_reliable_source(sources),
+            "reliable_source_rule": "标题含官方/公告/官网/12306/航司/机场/政府/文旅，或 URL 属于 .gov./12306.cn。",
+        },
+        "sources": evidence_sources,
+    }
+    try:
+        llm_response = llm.invoke(
+            [
+                ("system", REALTIME_SEARCH_SUMMARY_SYSTEM_PROMPT),
+                ("human", json.dumps(payload, ensure_ascii=False)),
+            ]
+        )
+    except Exception:
+        return None
+
+    answer = response_content_to_text(llm_response).strip()
+    if not answer:
+        return None
+    blocked_fragments = ("调研完成", "调研过程", "\nOK\n", "已理解需求", "整理回答")
+    if any(fragment in answer for fragment in blocked_fragments):
+        return None
+    return answer
+
+
 def has_reliable_source(sources: list[ChatbotSearchSource]) -> bool:
     official_terms = ("官方", "公告", "官网", "12306", "航司", "机场", "政府", "文旅")
     official_domains = (".gov.", "12306.cn")
@@ -458,6 +562,8 @@ def summarize_step(
 ) -> str:
     if kind == "weather":
         return "已获取天气服务返回的结构化预报。"
+    if kind == "transport" and any("12306 MCP" in source.title for source in sources):
+        return "已获取12306 MCP返回的结构化铁路余票。"
     if sources:
         return f"已获取 {len(sources)} 条实时搜索来源。"
     if "没有找到足够可靠" in answer:

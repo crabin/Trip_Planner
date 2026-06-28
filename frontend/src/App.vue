@@ -1,16 +1,46 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import type { Itinerary, TripDetailResponse } from "./types";
 import FloatingChatbot from "./components/FloatingChatbot.vue";
 import DeepPlanResult from "./views/DeepPlanResult.vue";
 import History from "./views/History.vue";
 import Home from "./views/Home.vue";
+import Landing from "./views/Landing.vue";
 import Result from "./views/Result.vue";
+import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, type Locale } from "./i18n";
 
-const currentView = ref<"home" | "result" | "history" | "deep-result">("home");
+const currentView = ref<"landing" | "home" | "result" | "history" | "deep-result">("landing");
 const latestItinerary = ref<Itinerary | null>(null);
 const latestDeepPlan = ref<TripDetailResponse | null>(null);
+const { locale, t } = useI18n();
+
+const currentLocale = computed({
+  get: () => locale.value as Locale,
+  set: (nextLocale: Locale) => {
+    locale.value = nextLocale;
+  },
+});
+
+const languageOptions = computed(() => [
+  { label: t("app.language.chinese"), value: "zh-CN" },
+  { label: t("app.language.english"), value: "en-US" },
+]);
+
+watch(
+  currentLocale,
+  (nextLocale) => {
+    document.documentElement.lang = nextLocale;
+    document.title = t("app.documentTitle");
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, nextLocale);
+  },
+  { immediate: true },
+);
+
+if (!currentLocale.value) {
+  currentLocale.value = DEFAULT_LOCALE;
+}
 
 function handleGenerated(itinerary: Itinerary) {
   latestItinerary.value = itinerary;
@@ -38,16 +68,20 @@ function updateCurrentItinerary(itinerary: Itinerary) {
     <div class="app-shell__glow app-shell__glow--left"></div>
     <div class="app-shell__glow app-shell__glow--right"></div>
 
-    <header class="hero">
-      <div class="hero__badge">Trip Planner Demo</div>
-      <h1 class="hero__title">智能旅行助手</h1>
+    <div class="language-switcher" :aria-label="t('app.language.label')">
+      <a-segmented v-model:value="currentLocale" :options="languageOptions" />
+    </div>
+
+    <header v-if="currentView !== 'landing'" class="hero">
+      <div class="hero__badge">{{ t("app.badge") }}</div>
+      <h1 class="hero__title">{{ t("app.title") }}</h1>
 
       <div class="hero__tabs">
         <button
           :class="['hero__tab', { 'hero__tab--active': currentView === 'home' }]"
           @click="currentView = 'home'"
         >
-          规划页
+          {{ t("app.nav.planner") }}
         </button>
         <button
           :class="[
@@ -58,7 +92,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
           :disabled="!latestItinerary"
           @click="currentView = 'result'"
         >
-          结果页
+          {{ t("app.nav.result") }}
         </button>
         <button
           :class="[
@@ -69,20 +103,25 @@ function updateCurrentItinerary(itinerary: Itinerary) {
           :disabled="!latestDeepPlan"
           @click="currentView = 'deep-result'"
         >
-          深度规划
+          {{ t("app.nav.deepPlan") }}
         </button>
         <button
           :class="['hero__tab', { 'hero__tab--active': currentView === 'history' }]"
           @click="currentView = 'history'"
         >
-          历史列表
+          {{ t("app.nav.history") }}
         </button>
       </div>
     </header>
 
     <main class="page-content">
+      <Landing
+        v-if="currentView === 'landing'"
+        @start-planning="currentView = 'home'"
+        @view-history="currentView = 'history'"
+      />
       <Home
-        v-if="currentView === 'home'"
+        v-else-if="currentView === 'home'"
         @generated="handleGenerated"
         @deep-submitted="currentView = 'history'"
       />
@@ -110,6 +149,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 
     <FloatingChatbot
       :current-itinerary="latestItinerary"
+      :locale="currentLocale"
       @itinerary-updated="updateCurrentItinerary"
     />
   </div>
@@ -119,12 +159,12 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 :global(body) {
   margin: 0;
   min-width: 320px;
-  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(175, 198, 255, 0.55), transparent 28%),
-    radial-gradient(circle at right 18%, rgba(181, 150, 255, 0.3), transparent 20%),
-    linear-gradient(180deg, #eef4ff 0%, #edf2f9 100%);
-  color: #1f2937;
+    radial-gradient(circle at 12% 8%, rgba(221, 190, 123, 0.25), transparent 28%),
+    radial-gradient(circle at 88% 18%, rgba(84, 129, 118, 0.2), transparent 24%),
+    linear-gradient(180deg, #f5f4ee 0%, #edf3ef 48%, #e9efec 100%);
+  color: #1b2f2d;
 }
 
 :global(*) {
@@ -134,7 +174,7 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 .app-shell {
   position: relative;
   min-height: 100vh;
-  padding: 40px 24px 64px;
+  padding: 28px 24px 64px;
   overflow: hidden;
 }
 
@@ -151,78 +191,114 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 .app-shell__glow--left {
   top: -110px;
   left: -90px;
-  background: rgba(113, 132, 255, 0.45);
+  background: rgba(207, 166, 83, 0.26);
 }
 
 .app-shell__glow--right {
   right: -80px;
   bottom: 120px;
-  background: rgba(155, 116, 255, 0.25);
+  background: rgba(33, 91, 84, 0.18);
+}
+
+.language-switcher {
+  position: fixed;
+  top: 18px;
+  right: 22px;
+  z-index: 20;
+  padding: 4px;
+  border: 1px solid rgba(22, 58, 54, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 14px 36px rgba(33, 61, 56, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.language-switcher :deep(.ant-segmented) {
+  background: transparent;
+}
+
+.language-switcher :deep(.ant-segmented-item) {
+  color: #52645f;
+  font-weight: 800;
+}
+
+.language-switcher :deep(.ant-segmented-item-selected) {
+  background: #173936;
+  color: #ffffff;
 }
 
 .hero {
   position: relative;
   z-index: 1;
   max-width: 1280px;
-  margin: 0 auto 28px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 auto 22px;
 }
 
 .hero__badge {
   display: inline-flex;
   align-items: center;
-  padding: 8px 14px;
+  flex: 0 0 auto;
+  padding: 9px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #5c6ac4;
+  border: 1px solid rgba(22, 58, 54, 0.1);
+  background: rgba(255, 255, 255, 0.74);
+  color: #8d641f;
   font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  box-shadow: 0 12px 30px rgba(98, 116, 164, 0.1);
+  font-weight: 800;
+  letter-spacing: 0;
+  box-shadow: 0 12px 30px rgba(36, 62, 58, 0.08);
 }
 
 .hero__title {
-  margin: 18px 0 0;
-  color: #ffffff;
-  font-size: 48px;
+  margin: 0;
+  color: #173936;
+  font-family: Georgia, "Times New Roman", "Songti SC", serif;
+  font-size: 34px;
   line-height: 1.1;
 }
 
 .hero::before {
   content: "";
   position: absolute;
-  inset: -24px 0 auto;
-  height: 220px;
+  inset: -12px -18px -12px;
   z-index: -1;
-  border-radius: 36px;
-  background: linear-gradient(135deg, #6d82de 0%, #6f72d9 52%, #8c67cf 100%);
-  box-shadow: 0 32px 80px rgba(95, 110, 172, 0.3);
+  border: 1px solid rgba(22, 58, 54, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 18px 50px rgba(33, 61, 56, 0.08);
+  backdrop-filter: blur(18px);
 }
 
 .hero__tabs {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 10px;
-  margin-top: 24px;
   padding: 8px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(22, 58, 54, 0.08);
+  border-radius: 16px;
+  background: rgba(238, 242, 235, 0.72);
   backdrop-filter: blur(10px);
 }
 
 .hero__tab {
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 10px 18px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: #52645f;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 800;
   cursor: pointer;
 }
 
 .hero__tab--active {
-  background: rgba(255, 255, 255, 0.92);
-  color: #5f60c8;
+  background: #173936;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(23, 57, 54, 0.14);
 }
 
 .hero__tab--disabled {
@@ -239,16 +315,35 @@ function updateCurrentItinerary(itinerary: Itinerary) {
 
 @media (max-width: 768px) {
   .app-shell {
-    padding: 24px 16px 40px;
+    padding: 64px 16px 40px;
+  }
+
+  .language-switcher {
+    top: 14px;
+    right: 16px;
+  }
+
+  .hero {
+    display: grid;
+    justify-items: start;
+    margin-bottom: 18px;
   }
 
   .hero__title {
-    font-size: 34px;
+    font-size: 28px;
   }
 
   .hero::before {
-    inset: -20px 0 auto;
-    height: 230px;
+    inset: -10px -10px -10px;
+  }
+
+  .hero__tabs {
+    width: 100%;
+  }
+
+  .hero__tab {
+    flex: 1 1 42%;
+    padding-inline: 10px;
   }
 }
 </style>

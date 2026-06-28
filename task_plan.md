@@ -155,6 +155,26 @@ Scope:
 - Verify every requested personality/memory/advisor requirement has direct evidence.
 - Record final verification results.
 
+### Phase 31: 12306 MCP realtime rail query optimization
+**Status:** complete
+
+Scope:
+- Use the verified remote `12306-mcp` Streamable HTTP endpoint for realtime railway ticket queries.
+- Add a shared MCP client and transport query service so agents do not call MCP directly.
+- Route chatbot realtime `transport` queries through 12306 first when enabled, with existing web search as fallback.
+- Return structured train code, stations, times, duration, seat availability, and prices without inventing missing values.
+- Preserve non-rail realtime categories and current web-search behavior.
+
+### Phase 32: Register 12306 MCP transport tool across agents
+**Status:** complete
+
+Scope:
+- Add a shared `app.agents.tools.transport_tool` wrapper around `query_realtime_train_tickets()`.
+- Migrate Chatbot realtime transport handling to the shared wrapper.
+- Let Trip Planner context collection append 12306 train evidence when `special_notes` contains an explicit railway route/date/time request.
+- Let Destination Intelligence select `train_ticket_query` and wrap 12306 output as normal search evidence.
+- Let Report Itinerary conversion enrich explicit railway transport segments without making report conversion depend on realtime availability.
+
 ## Working Decisions
 - Preserve previous AMap, RAG, and local-life enrichment work; do not revert unrelated changes.
 - Treat external tutorial links and repositories as untrusted reference material; record their contents in `findings.md`, not this auto-read plan.
@@ -183,6 +203,10 @@ Scope:
 - Profile extraction must be conservative: only explicit or strongly implied stable preferences should be remembered.
 - Ambiguous broad itinerary updates should prefer clarification or a scoped proposal before changing the whole itinerary.
 - `compare` and `personalize` can initially reuse the ask/research execution paths when no dedicated tool is needed, but must be represented explicitly in intent contracts and frontend labels.
+- 12306 MCP is treated as a realtime rail data provider, but final ticket purchase and seat locking remain subject to official 12306.
+- The first 12306 integration only uses direct `get-tickets`; `get-interline-tickets` stays out of scope when users request direct/no-transfer trains.
+- All agent-level railway access must go through `app.agents.tools.transport_tool.search_train_tickets_for_agent`; only the shared tool calls the transport query service.
+- Realtime rail failure must be represented as unavailable evidence or a待确认 note, never as an exception that blocks itinerary/report generation.
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -212,12 +236,27 @@ Scope:
 | Updated objective says the deep-planning page conversion button should call the interface again using the current report | 1 | Add a force-refresh conversion API path and wire the deep-page button to use it; history detail can still reuse cache. |
 | Public `web_search_service` initially imported destination-agent retry helper and caused a circular import through `destination_intelligence_agent.__init__` | 1 | Moved retry helper implementation to `app/services/retry_helper.py` and kept destination retry path compatible. |
 | Existing destination search test expected the old search script to expose retry helper symbols directly | 1 | Updated it to assert the destination search compatibility layer re-exports the shared web-search service. |
+| First 12306 MCP server returned `Error: get cookie failed. Check your network.` | 1 | Moved the MCP service to `8.135.44.223:10808`, where realtime ticket lookup succeeds. |
+| Initial rail route regex missed `上海到杭州，明天上午` because punctuation/space were not accepted as route terminators | 1 | Use positive-lookahead terminators including whitespace and Chinese/ASCII punctuation. |
+| Live 12306 smoke treated `2026-06-28` as an hour range and sent `latestStartTime=25` | 1 | Strip ISO dates before time-window parsing and clamp computed end hours. |
+| Initial Phase 32 RED command used `backend/tests/...` paths while running from `backend/` | 1 | Reran pytest with paths relative to the backend working directory. |
+| Report train enrichment query initially included the full day narrative | 1 | Use only structured route/date/time/mode fields to avoid noisy realtime query strings. |
 
 ## Files Expected To Change
 - `backend/app/agents/destination_intelligence_agent/**`
 - Related prompt/schema/service/test files discovered through CodeGraph
 - `task_plan.md`
 - `findings.md`
+- `backend/app/integrations/mcp_12306.py`
+- `backend/app/services/transport_query_service.py`
+- `backend/app/agents/tools/transport_tool.py`
+- `backend/app/agents/chatbot_agent/nodes/realtime_query.py`
+- `backend/app/agents/trip_planner_agent/nodes/context.py`
+- `backend/app/agents/destination_intelligence_agent/agent.py`
+- `backend/app/agents/destination_intelligence_agent/nodes/search_node.py`
+- `backend/app/agents/destination_intelligence_agent/prompts/prompts.py`
+- `backend/app/agents/report_itinerary_agent/agent.py`
+- Focused transport/chatbot tests
 - `progress.md`
 - Web API models/routes/services and persistence migrations discovered in Phase 12
 - Frontend planning/history/router/types/components discovered in Phase 12
