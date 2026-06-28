@@ -16,9 +16,12 @@ class Search:
     """单个搜索状态"""
 
     query: str = ""  # 搜索查询
+    step_id: str = ""  # 产生该来源的研究步骤
     url: str = ""  # 搜索结果URL
     title: str = ""  # 搜索结果标题
     content: str = ""  # 搜索返回结果内容
+    raw_content: Optional[str] = None  # 搜索原始内容或更完整证据
+    used_in_summary: bool = False  # 该来源是否进入总结提示词
     score: Optional[float] = None  # 搜索结果评分
     published_date: Optional[str] = None  # 来源发布日期
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -27,9 +30,12 @@ class Search:
         """将Search对象转换为字典"""
         return {
             "query": self.query,
+            "step_id": self.step_id,
             "url": self.url,
             "title": self.title,
             "content": self.content,
+            "raw_content": self.raw_content,
+            "used_in_summary": self.used_in_summary,
             "score": self.score,
             "published_date": self.published_date,
             "timestamp": self.timestamp,
@@ -40,11 +46,68 @@ class Search:
         """从字典创建Search对象"""
         return cls(
             query=data.get("query", ""),
+            step_id=data.get("step_id", ""),
             url=data.get("url", ""),
             title=data.get("title", ""),
             content=data.get("content", ""),
+            raw_content=data.get("raw_content"),
+            used_in_summary=bool(data.get("used_in_summary", False)),
             score=data.get("score"),
             published_date=data.get("published_date"),
+            timestamp=data.get("timestamp", datetime.now().isoformat()),
+        )
+
+
+@dataclass
+class ResearchTraceStep:
+    """A compact audit record for one destination-intelligence research step."""
+
+    step_id: str = ""
+    phase: str = ""
+    section_title: str = ""
+    search_query: str = ""
+    search_tool: str = ""
+    reasoning: str = ""
+    summary_before: str = ""
+    summary_after: str = ""
+    evidence_count: int = 0
+    prompt_chars: int = 0
+    estimated_prompt_tokens: int = 0
+    fallback_reason: str = ""
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "step_id": self.step_id,
+            "phase": self.phase,
+            "section_title": self.section_title,
+            "search_query": self.search_query,
+            "search_tool": self.search_tool,
+            "reasoning": self.reasoning,
+            "summary_before": self.summary_before,
+            "summary_after": self.summary_after,
+            "evidence_count": self.evidence_count,
+            "prompt_chars": self.prompt_chars,
+            "estimated_prompt_tokens": self.estimated_prompt_tokens,
+            "fallback_reason": self.fallback_reason,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ResearchTraceStep":
+        return cls(
+            step_id=str(data.get("step_id", "")),
+            phase=str(data.get("phase", "")),
+            section_title=str(data.get("section_title", "")),
+            search_query=str(data.get("search_query", "")),
+            search_tool=str(data.get("search_tool", "")),
+            reasoning=str(data.get("reasoning", "")),
+            summary_before=str(data.get("summary_before", "")),
+            summary_after=str(data.get("summary_after", "")),
+            evidence_count=int(data.get("evidence_count") or 0),
+            prompt_chars=int(data.get("prompt_chars") or 0),
+            estimated_prompt_tokens=int(data.get("estimated_prompt_tokens") or 0),
+            fallback_reason=str(data.get("fallback_reason", "")),
             timestamp=data.get("timestamp", datetime.now().isoformat()),
         )
 
@@ -54,6 +117,7 @@ class Research:
     """段落研究过程状态"""
 
     search_history: List[Search] = field(default_factory=list)  # 搜索记录列表
+    trace_steps: List[ResearchTraceStep] = field(default_factory=list)
     latest_summary: str = ""  # 当前段落的最新总结
     reflection_iteration: int = 0  # 反思迭代次数
     is_completed: bool = False  # 是否完成研究
@@ -62,14 +126,24 @@ class Research:
         """添加新的搜索记录"""
         self.search_history.append(search)
 
-    def add_search_results(self, query: str, results: list[dict[str, Any]]):
+    def add_search_results(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        *,
+        step_id: str = "",
+        used_in_summary: bool = False,
+    ):
         """批量添加新的搜索结果"""
         for item in results:
             search = Search(
                 query=query,
+                step_id=step_id or item.get("step_id", ""),
                 url=item.get("url", ""),
                 title=item.get("title", ""),
                 content=item.get("content", ""),
+                raw_content=item.get("raw_content"),
+                used_in_summary=bool(item.get("used_in_summary", used_in_summary)),
                 score=item.get("score"),
                 published_date=item.get("published_date"),
             )
@@ -91,6 +165,7 @@ class Research:
         """将Research对象转换为字典"""
         return {
             "search_history": [s.to_dict() for s in self.search_history],
+            "trace_steps": [step.to_dict() for step in self.trace_steps],
             "latest_summary": self.latest_summary,
             "reflection_iteration": self.reflection_iteration,
             "is_completed": self.is_completed,
@@ -100,8 +175,14 @@ class Research:
     def from_dict(cls, data: Dict[str, Any]) -> "Research":
         """从字典创建Research对象"""
         search_history = [Search.from_dict(s) for s in data.get("search_history", [])]
+        trace_steps = [
+            ResearchTraceStep.from_dict(step)
+            for step in data.get("trace_steps", [])
+            if isinstance(step, dict)
+        ]
         return cls(
             search_history=search_history,
+            trace_steps=trace_steps,
             latest_summary=data.get("latest_summary", ""),
             reflection_iteration=data.get("reflection_iteration", 0),
             is_completed=data.get("is_completed", False),
@@ -114,6 +195,7 @@ class Paragraph:
 
     title: str = ""  # 段落标题
     content: str = ""  # 段落内容
+    requires_12306_mcp: bool = False
     research: Research = field(default_factory=Research)  # 段落研究状态
     order: int = 0  # 段落顺序
 
@@ -130,6 +212,7 @@ class Paragraph:
         return {
             "title": self.title,
             "content": self.content,
+            "requires_12306_mcp": self.requires_12306_mcp,
             "research": self.research.to_dict(),
             "order": self.order,
         }
@@ -142,6 +225,7 @@ class Paragraph:
         return cls(
             title=data.get("title", ""),
             content=data.get("content", ""),
+            requires_12306_mcp=bool(data.get("requires_12306_mcp", False)),
             research=research,
             order=data.get("order", 0),
         )
@@ -163,7 +247,13 @@ class State:
         default_factory=lambda: datetime.now().isoformat()
     )  # 更新时间
 
-    def add_paragraph(self, title: str, content: str) -> int:
+    def add_paragraph(
+        self,
+        title: str,
+        content: str,
+        *,
+        requires_12306_mcp: bool = False,
+    ) -> int:
         """
         添加新的段落
         
@@ -176,7 +266,12 @@ class State:
         
         """
         order = len(self.paragraphs)
-        paragraph = Paragraph(title=title, content=content, order=order)
+        paragraph = Paragraph(
+            title=title,
+            content=content,
+            requires_12306_mcp=requires_12306_mcp,
+            order=order,
+        )
         self.paragraphs.append(paragraph)
         self.update_timestamp()
         return order  # 返回新段落的索引

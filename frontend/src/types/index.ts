@@ -1,4 +1,5 @@
 export interface TripRequestPayload {
+  origin: string;
   destination: string;
   start_date: string;
   end_date: string;
@@ -11,6 +12,30 @@ export interface TripRequestPayload {
   special_notes?: string | null;
   deep_planning_reflection_rounds: number;
   deep_planning_search_engine: "tavily" | "searxng";
+}
+
+export interface LocationSuggestion {
+  label: string;
+  value: string;
+  district?: string;
+  adcode?: string;
+}
+
+export interface LocationSuggestionResponse {
+  items: LocationSuggestion[];
+}
+
+export interface DestinationSpanCheckResponse {
+  max_distance_km: number;
+  max_pair: string[];
+  resolved: Array<{
+    name: string;
+    latitude: number;
+    longitude: number;
+    formatted_address: string;
+  }>;
+  unresolved: string[];
+  is_large_span: boolean;
 }
 
 export interface TripEditPayload {
@@ -427,16 +452,36 @@ export interface TripDetailResponse {
 export interface DeepPlanSource {
   section_title: string;
   query: string;
+  step_id?: string;
   title: string;
   url: string;
   content: string;
+  raw_content?: string | null;
+  used_in_summary?: boolean;
   score?: number | null;
   published_date?: string | null;
+}
+
+export interface DeepPlanResearchTraceStep {
+  step_id: string;
+  phase: string;
+  section_title: string;
+  search_query: string;
+  search_tool: string;
+  reasoning: string;
+  summary_before: string;
+  summary_after: string;
+  evidence_count: number;
+  prompt_chars: number;
+  estimated_prompt_tokens: number;
+  fallback_reason: string;
+  timestamp: string;
 }
 
 export interface DeepPlanDocument {
   markdown: string;
   sources: DeepPlanSource[];
+  research_trace: DeepPlanResearchTraceStep[];
 }
 
 export interface WeatherForecastDay {

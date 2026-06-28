@@ -37,7 +37,7 @@ class ReportStructureNode(StateMutationNode):
         """验证输入数据"""
         return isinstance(self.query, str) and len(self.query.strip()) > 0
     
-    def run(self, input_data: Any = None, **kwargs) -> List[Dict[str, str]]:
+    def run(self, input_data: Any = None, **kwargs) -> List[Dict[str, Any]]:
         """
         调用LLM生成报告结构
         
@@ -64,7 +64,7 @@ class ReportStructureNode(StateMutationNode):
             logger.exception(f"生成报告结构失败: {str(e)}")
             raise
     
-    def process_output(self, output: str) -> List[Dict[str, str]]:
+    def process_output(self, output: str) -> List[Dict[str, Any]]:
         """
         处理LLM输出，提取报告结构
         
@@ -132,7 +132,8 @@ class ReportStructureNode(StateMutationNode):
                 
                 validated_structure.append({
                     "title": title,
-                    "content": content
+                    "content": content,
+                    "requires_12306_mcp": bool(paragraph.get("requires_12306_mcp", False)),
                 })
             
             if not validated_structure:
@@ -153,7 +154,7 @@ class ReportStructureNode(StateMutationNode):
             logger.exception(f"处理输出失败: {str(e)}")
             return self._generate_default_structure()
     
-    def _generate_default_structure(self) -> List[Dict[str, str]]:
+    def _generate_default_structure(self) -> List[Dict[str, Any]]:
         """
         生成默认的报告结构
         
@@ -164,23 +165,28 @@ class ReportStructureNode(StateMutationNode):
         return [
             {
                 "title": "旅行概览、偏好与目标时段约束",
-                "content": "梳理日期、天数晚数、出发地、同行人、预算、旅行模式、天气季节、节假日和待确认假设。"
+                "content": "梳理日期、天数晚数、出发地、同行人、预算、旅行模式、天气季节、节假日和待确认假设。",
+                "requires_12306_mcp": False,
             },
             {
                 "title": "跨市交通、市内交通与住宿",
-                "content": "研究到离时间窗、枢纽接驳、当地移动方式、住宿区域与逐晚覆盖，并检查相互制约。"
+                "content": "研究到离时间窗、枢纽接驳、当地移动方式、住宿区域与逐晚覆盖，并检查相互制约。",
+                "requires_12306_mcp": True,
             },
             {
                 "title": "候选景点、体验、餐饮与地理分组",
-                "content": "整理开放预约、建议时长、适配度和地理片区，说明入选、舍弃、备选和餐饮补给。"
+                "content": "整理开放预约、建议时长、适配度和地理片区，说明入选、舍弃、备选和餐饮补给。",
+                "requires_12306_mcp": False,
             },
             {
                 "title": "逐日可执行行程",
-                "content": "按准确日期建立每天的时间—地点链，包含交通、游玩、用餐、住宿、机动时间和替代方案。"
+                "content": "按准确日期建立每天的时间—地点链，包含交通、游玩、用餐、住宿、机动时间和替代方案。",
+                "requires_12306_mcp": True,
             },
             {
                 "title": "出发准备、预算与风险预案",
-                "content": "整理预订时间线、行李、预算框架、实用提示、应急方案、出发前复核项和来源。"
+                "content": "整理预订时间线、行李、预算框架、实用提示、应急方案、出发前复核项和来源。",
+                "requires_12306_mcp": False,
             },
         ]
     
@@ -212,7 +218,8 @@ class ReportStructureNode(StateMutationNode):
             for paragraph_data in report_structure:
                 state.add_paragraph(
                     title=paragraph_data["title"],
-                    content=paragraph_data["content"]
+                    content=paragraph_data["content"],
+                    requires_12306_mcp=bool(paragraph_data.get("requires_12306_mcp", False)),
                 )
             
             logger.info(f"已将 {len(report_structure)} 个段落添加到状态中")

@@ -35,6 +35,7 @@ def build_planner_messages(
     guide_context = "\n\n".join(rag_contexts) if rag_contexts else "暂无本地攻略上下文。"
     human_prompt = f"""
 目的地：{request.destination}
+出发地：{request.origin}
 出发日期：{request.start_date.isoformat()}
 结束日期：{request.end_date.isoformat()}
 天数：{day_count}
@@ -54,6 +55,7 @@ def build_planner_messages(
 2. 每天只给一个主要景点、一个餐饮建议和一条当天备注。
 3. day_index 必须从 1 到 {day_count}，且只能引用【{request.destination}】的信息。
 4. 明确的额外备注必须在 days 中体现；轻松节奏应避免过满或过早出发。
-5. 只返回符合系统消息 schema 的 JSON 对象。
+5. 如需描述抵达或返程交通，请使用出发地【{request.origin}】到目的地【{request.destination}】的方向。
+6. 只返回符合系统消息 schema 的 JSON 对象。
 """
     return [("system", SYSTEM_PROMPT), ("human", human_prompt)]

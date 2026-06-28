@@ -1,10 +1,13 @@
 import Chat, { Bubble, useMessages, type MessageProps } from "@chatui/core";
 import "@chatui/core/dist/index.css";
+import { useGSAP } from "@gsap/react";
 import DOMPurify from "dompurify";
+import gsap from "gsap";
 import { marked } from "marked";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+import type { Locale } from "../i18n";
 import { sendChatbotMessage, sendChatbotMessageStream } from "../services/api";
 import type {
   ChatbotConversationMessage,
@@ -16,6 +19,7 @@ import type {
 
 export interface FloatingChatbotProps {
   currentItinerary: Itinerary | null;
+  locale: Locale;
   onItineraryUpdated: (itinerary: Itinerary) => void;
 }
 
@@ -27,6 +31,8 @@ const DEFAULT_CHATBOT_OFFSET = { left: 0, bottom: 0 };
 const TOGGLE_BUTTON_SIZE = 56;
 const TOGGLE_DRAG_THRESHOLD = 4;
 const CHATBOT_PANEL_GAP = 12;
+const TYPEWRITER_INTERVAL_MS = 18;
+const TYPEWRITER_CHARS_PER_TICK = 2;
 const TRAVELER_PROFILE_STORAGE_KEY = "trip_planner.traveler_profile";
 const CHATBOT_SUMMARY_STORAGE_KEY = "trip_planner.chatbot_summary";
 const EMPTY_TRAVELER_PROFILE: TravelerProfile = {
@@ -49,7 +55,75 @@ type PanelLayout = {
   height: number;
 };
 
+const CHATBOT_TEXT: Record<Locale, Record<string, string>> = {
+  "zh-CN": {
+    greeting: "我是你的智旅顾问，会帮你把行程安排得更顺路、更符合预算和节奏。你可以直接说想改哪一天、查哪个景点，或让我帮你权衡两个方案。",
+    title: "智旅顾问",
+    restoreSize: "恢复聊天窗口初始大小",
+    maximize: "最大化聊天窗口",
+    restoreTitle: "恢复初始大小",
+    maximizeTitle: "最大化窗口",
+    liveResearch: "正在实时调研",
+    researchProcess: "调研过程",
+    realtimeProgress: "实时查询进度",
+    researchProgress: "调研进度",
+    realtimeDone: "实时查询完成",
+    researchDone: "调研完成",
+    finalPreparing: "实时查询完成，我开始整理最终建议。",
+    noResponse: "智旅顾问暂时没有响应。请检查后端服务是否启动，稍后再试。",
+    thinkingPlaceholder: "智旅顾问正在思考...",
+    placeholder: "输入想调整、查询或比较的旅行需求...",
+    resizeLabel: "拖拽调整聊天窗口大小",
+    resizeTitle: "拖拽调整大小",
+    thinkingLabel: "智旅顾问正在思考",
+    collapseLabel: "收起智旅顾问",
+    expandLabel: "展开智旅顾问",
+    thinkingTitle: "正在思考",
+    intentResearch: "我会先做实时查询，再给你整理结论。",
+    intentSearch: "我正在查询相关实时信息。",
+    intentUpdate: "我正在按你的要求调整当前行程。",
+    intentClarify: "我需要先确认关键信息，再给稳妥建议。",
+    intentDefault: "我正在整理回答。",
+  },
+  "en-US": {
+    greeting: "I am your travel advisor. I can help make the itinerary smoother, better aligned with your budget, and easier to execute. Ask me to change a day, research an attraction, or compare options.",
+    title: "Travel Advisor",
+    restoreSize: "Restore chat window size",
+    maximize: "Maximize chat window",
+    restoreTitle: "Restore size",
+    maximizeTitle: "Maximize",
+    liveResearch: "Researching live",
+    researchProcess: "Research process",
+    realtimeProgress: "Live query progress",
+    researchProgress: "Research progress",
+    realtimeDone: "Live query complete",
+    researchDone: "Research complete",
+    finalPreparing: "Live query complete. I am preparing the final recommendation.",
+    noResponse: "The travel advisor is not responding. Check whether the backend service is running and try again later.",
+    thinkingPlaceholder: "Travel advisor is thinking...",
+    placeholder: "Enter a trip edit, question, or comparison...",
+    resizeLabel: "Drag to resize chat window",
+    resizeTitle: "Drag to resize",
+    thinkingLabel: "Travel advisor is thinking",
+    collapseLabel: "Collapse travel advisor",
+    expandLabel: "Expand travel advisor",
+    thinkingTitle: "Thinking",
+    intentResearch: "I will run a live query first, then summarize the answer.",
+    intentSearch: "I am querying relevant live information.",
+    intentUpdate: "I am adjusting the current itinerary as requested.",
+    intentClarify: "I need to confirm key details before giving a reliable answer.",
+    intentDefault: "I am preparing the answer.",
+  },
+};
+
+gsap.registerPlugin(useGSAP);
+
 function FloatingChatbotReact(props: FloatingChatbotProps) {
+  const text = CHATBOT_TEXT[props.locale];
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const thinkingRingRef = useRef<HTMLSpanElement | null>(null);
+  const toggleMarkRef = useRef<HTMLSpanElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [customSize, setCustomSize] = useState(DEFAULT_CHATBOT_SIZE);
@@ -64,7 +138,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     {
       type: "text",
       content: {
-        text: "我是你的智旅顾问，会帮你把行程安排得更顺路、更符合预算和节奏。你可以直接说想改哪一天、查哪个景点，或让我帮你权衡两个方案。",
+        text: text.greeting,
       },
       position: "left",
     },
@@ -73,6 +147,87 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     () => getConstrainedPanelLayout(customSize, customOffset, viewportSize),
     [customOffset, customSize, viewportSize],
   );
+
+  useGSAP(() => {
+    const toggle = toggleRef.current;
+    const ring = thinkingRingRef.current;
+    const mark = toggleMarkRef.current;
+    if (!toggle || !ring || !mark) {
+      return undefined;
+    }
+
+    if (!isResponding) {
+      gsap.set(toggle, {
+        backgroundColor: "",
+        boxShadow: "",
+        scale: 1,
+        y: 0,
+      });
+      gsap.set(ring, {
+        autoAlpha: 0,
+        rotation: 0,
+        scale: 0.92,
+      });
+      gsap.set(mark, {
+        autoAlpha: 1,
+        rotation: 0,
+        scale: 1,
+        y: 0,
+      });
+      return undefined;
+    }
+
+    const mm = gsap.matchMedia();
+    mm.add("(prefers-reduced-motion: no-preference)", () => {
+      const timeline = gsap.timeline();
+      timeline.set(ring, { autoAlpha: 1, scale: 1 });
+      timeline.to(ring, {
+        rotation: 360,
+        duration: 1.05,
+        ease: "none",
+        repeat: -1,
+      }, 0);
+      timeline.to(toggle, {
+        backgroundColor: "#4f5fd0",
+        boxShadow: "0 18px 42px rgba(62, 78, 160, 0.42), 0 0 0 12px rgba(88, 103, 216, 0)",
+        scale: 1.035,
+        y: -1.5,
+        duration: 0.9,
+        ease: "sine.inOut",
+        repeat: -1,
+        yoyo: true,
+      }, 0);
+      timeline.to(mark, {
+        scale: 0.86,
+        duration: 0.78,
+        ease: "sine.inOut",
+        repeat: -1,
+        yoyo: true,
+      }, 0);
+
+      return () => timeline.kill();
+    });
+    mm.add("(prefers-reduced-motion: reduce)", () => {
+      gsap.set(toggle, {
+        backgroundColor: "#4f5fd0",
+        boxShadow: "0 18px 42px rgba(62, 78, 160, 0.42), 0 0 0 4px rgba(88, 103, 216, 0.18)",
+        scale: 1,
+        y: 0,
+      });
+      gsap.set(ring, {
+        autoAlpha: 1,
+        rotation: 0,
+        scale: 1,
+      });
+      gsap.set(mark, {
+        scale: 0.88,
+        y: 0,
+      });
+      return undefined;
+    });
+
+    return () => mm.revert();
+  }, { dependencies: [isResponding], scope: rootRef, revertOnUpdate: true });
 
   useEffect(() => {
     const handleResize = () => setViewportSize(getViewportSize());
@@ -92,14 +247,14 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
 
   const navbar = useMemo(
     () => ({
-      title: "智旅顾问",
+      title: text.title,
       rightSlot: React.createElement(
         "button",
         {
           type: "button",
           className: "floating-chatbot__expand",
-          "aria-label": isMaximized ? "恢复聊天窗口初始大小" : "最大化聊天窗口",
-          title: isMaximized ? "恢复初始大小" : "最大化窗口",
+          "aria-label": isMaximized ? text.restoreSize : text.maximize,
+          title: isMaximized ? text.restoreTitle : text.maximizeTitle,
           onClick: toggleMaximized,
         },
         React.createElement(
@@ -111,7 +266,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         ),
       ),
     }),
-    [isMaximized, toggleMaximized],
+    [isMaximized, text, toggleMaximized],
   );
 
   const handleResizeStart = useCallback((event: React.MouseEvent<HTMLElement>, direction: ResizeDirection) => {
@@ -258,7 +413,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             React.createElement(
               "div",
               { className: "floating-chatbot__research-title" },
-              hasActiveStep(researchSteps) ? "正在实时调研" : "调研过程",
+              hasActiveStep(researchSteps) ? text.liveResearch : text.researchProcess,
             ),
             researchSteps.map((step) =>
               React.createElement(
@@ -284,25 +439,25 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           )
         : null,
     );
-  }, []);
+  }, [text]);
 
   const handleSend = useCallback(
     async (type: string, content: string) => {
-      const text = content.trim();
-      if (isResponding || type !== "text" || !text) {
+      const userText = content.trim();
+      if (isResponding || type !== "text" || !userText) {
         return;
       }
 
       setIsResponding(true);
       appendMsg({
         type: "text",
-        content: { text },
+        content: { text: userText },
         position: "right",
       });
 
       const nextHistory: ChatbotConversationMessage[] = [
         ...history,
-        { role: "user", content: text },
+        { role: "user", content: userText },
       ];
       setHistory(nextHistory);
 
@@ -310,7 +465,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         assistantText: string,
         options: { researchSteps?: ChatbotResearchStep[]; markdown?: boolean; report?: boolean } = {},
       ) => {
-        appendMsg({
+        return appendMsg({
           type: "text",
           content: {
             text: assistantText,
@@ -344,9 +499,10 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         let visibleSteps: ChatbotResearchStep[] = [];
         let queryCardMessageId: string | null = null;
         let researchCardMessageId: string | null = null;
+        let finalTyping: Promise<void> | null = null;
 
         await sendChatbotMessageStream({
-          message: text,
+          message: userText,
           trip_id: props.currentItinerary?.trip_id ?? null,
           current_itinerary: props.currentItinerary,
           profile: travelerProfile,
@@ -355,7 +511,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         }, (event) => {
           if (event.event === "intent") {
             if (event.data.intent !== "search") {
-              appendAssistantMessage(intentLabel(event.data.intent));
+              appendAssistantMessage(intentLabel(event.data.intent, props.locale));
             }
             return;
           }
@@ -364,7 +520,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             queryCardMessageId = appendMsg({
               type: "text",
               content: {
-                text: "实时查询进度",
+                text: text.realtimeProgress,
                 researchSteps: visibleSteps,
                 markdown: false,
                 report: false,
@@ -376,14 +532,14 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           if (event.event === "query_step") {
             visibleSteps = upsertResearchStep(visibleSteps, event.data);
             if (queryCardMessageId) {
-              updateAssistantMessage(queryCardMessageId, "实时查询进度", {
+              updateAssistantMessage(queryCardMessageId, text.realtimeProgress, {
                 researchSteps: visibleSteps,
               });
             } else {
               queryCardMessageId = appendMsg({
                 type: "text",
                 content: {
-                  text: "实时查询进度",
+                  text: text.realtimeProgress,
                   researchSteps: visibleSteps,
                   markdown: false,
                   report: false,
@@ -398,7 +554,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             researchCardMessageId = appendMsg({
               type: "text",
               content: {
-                text: "调研进度",
+                text: text.researchProgress,
                 researchSteps: visibleSteps,
                 markdown: false,
                 report: false,
@@ -410,14 +566,14 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           if (event.event === "research_step") {
             visibleSteps = upsertResearchStep(visibleSteps, event.data);
             if (researchCardMessageId) {
-              updateAssistantMessage(researchCardMessageId, "调研进度", {
+              updateAssistantMessage(researchCardMessageId, text.researchProgress, {
                 researchSteps: visibleSteps,
               });
             } else {
               researchCardMessageId = appendMsg({
                 type: "text",
                 content: {
-                  text: "调研进度",
+                  text: text.researchProgress,
                   researchSteps: visibleSteps,
                   markdown: false,
                   report: false,
@@ -432,17 +588,19 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             persistChatbotMemory(event.data, setTravelerProfile, setConversationSummary);
             visibleSteps = event.data.research_steps;
             if (queryCardMessageId && visibleSteps.length) {
-              updateAssistantMessage(queryCardMessageId, "实时查询完成", {
+              updateAssistantMessage(queryCardMessageId, text.realtimeDone, {
                 researchSteps: visibleSteps,
               });
             } else if (researchCardMessageId && visibleSteps.length) {
-              updateAssistantMessage(researchCardMessageId, "调研完成", {
+              updateAssistantMessage(researchCardMessageId, text.researchDone, {
                 researchSteps: visibleSteps,
               });
             } else {
-              appendAssistantMessage("实时查询完成，我开始整理最终建议。");
+              appendAssistantMessage(text.finalPreparing);
             }
-            appendAssistantMessage(event.data.reply, {
+            finalTyping = typeAssistantMessage(event.data.reply, {
+              appendMsg,
+              updateMsg,
               researchSteps: queryCardMessageId || researchCardMessageId ? [] : visibleSteps,
               markdown: true,
               report: true,
@@ -453,10 +611,11 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             throw new Error(event.data.message);
           }
         });
+        await finalTyping;
 
         if (!response) {
           response = await sendChatbotMessage({
-            message: text,
+            message: userText,
             trip_id: props.currentItinerary?.trip_id ?? null,
             current_itinerary: props.currentItinerary,
             profile: travelerProfile,
@@ -464,7 +623,9 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             history: nextHistory,
           });
           persistChatbotMemory(response, setTravelerProfile, setConversationSummary);
-          appendAssistantMessage(response.reply, {
+          await typeAssistantMessage(response.reply, {
+            appendMsg,
+            updateMsg,
             researchSteps: response.research_steps,
             markdown: true,
             report: true,
@@ -481,17 +642,18 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         }
       } catch (error) {
         console.error(error);
-        appendAssistantMessage("智旅顾问暂时没有响应。请检查后端服务是否启动，稍后再试。");
+        appendAssistantMessage(text.noResponse);
       } finally {
         setIsResponding(false);
       }
     },
-    [appendMsg, conversationSummary, history, isResponding, props, travelerProfile, updateMsg],
+    [appendMsg, conversationSummary, history, isResponding, props, text, travelerProfile, updateMsg],
   );
 
   return React.createElement(
     "div",
     {
+      ref: rootRef,
       className: [
         "floating-chatbot",
         isOpen ? "floating-chatbot--open" : "",
@@ -518,7 +680,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
       React.createElement(Chat, {
         navbar,
         messages,
-        placeholder: isResponding ? "智旅顾问正在思考..." : "输入想调整、查询或比较的旅行需求...",
+        placeholder: isResponding ? text.thinkingPlaceholder : text.placeholder,
         inputOptions: {
           disabled: isResponding,
         },
@@ -534,8 +696,8 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
               key: direction,
               type: "button",
               className: `floating-chatbot__resize floating-chatbot__resize--${direction}`,
-              "aria-label": "拖拽调整聊天窗口大小",
-              title: "拖拽调整大小",
+              "aria-label": text.resizeLabel,
+              title: text.resizeTitle,
               onMouseDown: (event) => handleResizeStart(event, direction),
             },
             React.createElement("span", { "aria-hidden": true }),
@@ -545,11 +707,12 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     React.createElement(
       "button",
       {
+        ref: toggleRef,
         type: "button",
         className: "floating-chatbot__toggle",
         "aria-expanded": isOpen,
-        "aria-label": isResponding ? "智旅顾问正在思考" : isOpen ? "收起智旅顾问" : "展开智旅顾问",
-        title: isResponding ? "正在思考" : isOpen ? "收起智旅顾问" : "展开智旅顾问",
+        "aria-label": isResponding ? text.thinkingLabel : isOpen ? text.collapseLabel : text.expandLabel,
+        title: isResponding ? text.thinkingTitle : isOpen ? text.collapseLabel : text.expandLabel,
         onClick: () => {
           if (!isDraggingToggle) {
             setIsOpen((value) => !value);
@@ -560,6 +723,15 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
       React.createElement(
         "span",
         {
+          ref: thinkingRingRef,
+          className: "floating-chatbot__thinking-ring",
+          "aria-hidden": true,
+        },
+      ),
+      React.createElement(
+        "span",
+        {
+          ref: toggleMarkRef,
           className: "floating-chatbot__toggle-mark",
           "aria-hidden": true,
         },
@@ -634,6 +806,58 @@ function renderMarkdown(text: string): string {
 
 function hasActiveStep(steps: ChatbotResearchStep[]): boolean {
   return steps.some((step) => step.status === "running" || step.status === "pending");
+}
+
+async function typeAssistantMessage(
+  text: string,
+  options: {
+    appendMsg: ReturnType<typeof useMessages>["appendMsg"];
+    updateMsg: ReturnType<typeof useMessages>["updateMsg"];
+    researchSteps?: ChatbotResearchStep[];
+    markdown?: boolean;
+    report?: boolean;
+  },
+): Promise<void> {
+  const characters = Array.from(text);
+  const messageId = options.appendMsg({
+    type: "text",
+    content: {
+      text: "",
+      researchSteps: options.researchSteps ?? [],
+      markdown: options.markdown ?? false,
+      report: options.report ?? false,
+    },
+    position: "left",
+  });
+
+  for (let index = TYPEWRITER_CHARS_PER_TICK; index < characters.length; index += TYPEWRITER_CHARS_PER_TICK) {
+    await sleep(TYPEWRITER_INTERVAL_MS);
+    options.updateMsg(messageId, {
+      type: "text",
+      content: {
+        text: characters.slice(0, index).join(""),
+        researchSteps: options.researchSteps ?? [],
+        markdown: options.markdown ?? false,
+        report: options.report ?? false,
+      },
+      position: "left",
+    });
+  }
+
+  options.updateMsg(messageId, {
+    type: "text",
+    content: {
+      text,
+      researchSteps: options.researchSteps ?? [],
+      markdown: options.markdown ?? false,
+      report: options.report ?? false,
+    },
+    position: "left",
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function loadTravelerProfile(): TravelerProfile {
@@ -712,20 +936,21 @@ function upsertResearchStep(
   return steps.map((step, stepIndex) => (stepIndex === index ? nextStep : step));
 }
 
-function intentLabel(intent: ChatbotMessageResponse["intent"]): string {
+function intentLabel(intent: ChatbotMessageResponse["intent"], locale: Locale): string {
+  const text = CHATBOT_TEXT[locale];
   if (intent === "research" || intent === "risk_check" || intent === "compare") {
-    return "我会先做实时查询，再给你整理结论。";
+    return text.intentResearch;
   }
   if (intent === "search") {
-    return "我正在查询相关实时信息。";
+    return text.intentSearch;
   }
   if (intent === "update" || intent === "personalize") {
-    return "我正在按你的要求调整当前行程。";
+    return text.intentUpdate;
   }
   if (intent === "clarify") {
-    return "我需要先确认关键信息，再给稳妥建议。";
+    return text.intentClarify;
   }
-  return "我正在整理回答。";
+  return text.intentDefault;
 }
 
 export interface FloatingChatbotHandle {

@@ -281,32 +281,45 @@ def truncate_content(content: str, max_length: int = 20000) -> str:
         return truncated + "..."
 
 
-def format_search_results_for_prompt(search_results: List[Dict[str, Any]], 
-                                   max_length: int = 20000) -> List[str]:
+def format_search_results_for_prompt(
+    search_results: List[Dict[str, Any]],
+    max_length: int = 20000,
+) -> List[str]:
     """
     格式化搜索结果用于提示词
     
     Args:
         search_results: 搜索结果列表
-        max_length: 每个结果的最大长度
+        max_length: 本轮搜索证据进入提示词的总字符预算
         
     Returns:
         格式化后的内容列表
     """
+    results_with_content = [
+        result
+        for result in search_results
+        if str(result.get("raw_content") or result.get("content") or "").strip()
+    ]
+    if not results_with_content:
+        return []
+
+    total_budget = max(200, int(max_length or 20000))
+    per_result_budget = max(120, total_budget // len(results_with_content))
     formatted_results = []
-    
-    for result in search_results:
-        content = result.get('content', '')
-        if content:
-            truncated_content = truncate_content(content, max_length)
-            metadata = [f"标题: {result.get('title') or '未提供'}"]
-            if result.get('url'):
-                metadata.append(f"URL: {result['url']}")
-            if result.get('published_date'):
-                metadata.append(f"发布日期: {result['published_date']}")
-            if result.get('score') is not None:
-                metadata.append(f"相关度: {result['score']}")
-            metadata.append(f"内容: {truncated_content}")
-            formatted_results.append("\n".join(metadata))
-    
+
+    for result in results_with_content:
+        content = str(result.get("raw_content") or result.get("content") or "").strip()
+        metadata = [f"标题: {result.get('title') or '未提供'}"]
+        if result.get("url"):
+            metadata.append(f"URL: {result['url']}")
+        if result.get("published_date"):
+            metadata.append(f"发布日期: {result['published_date']}")
+        if result.get("score") is not None:
+            metadata.append(f"相关度: {result['score']}")
+
+        metadata_prefix = "\n".join(metadata) + "\n内容: "
+        content_budget = max(40, per_result_budget - len(metadata_prefix))
+        truncated_content = truncate_content(content, content_budget)
+        formatted_results.append(metadata_prefix + truncated_content)
+
     return formatted_results

@@ -117,7 +117,7 @@ def test_luoyang_and_beijing_reports_keep_every_daily_heading() -> None:
     assert any("D7" in section.title for section in beijing_days)
 
 
-def test_report_extraction_prompts_include_output_json_schema_blocks() -> None:
+def test_report_extraction_prompts_include_output_contracts() -> None:
     section = agent._ReportExtractionSection(
         "chunk-1",
         "chunk",
@@ -140,13 +140,28 @@ def test_report_extraction_prompts_include_output_json_schema_blocks() -> None:
         end_date="2026-06-30",
     )
 
-    for prompt in (batch_prompt, consolidation_prompt):
-        assert "<OUTPUT JSON SCHEMA>" in prompt
-        assert "</OUTPUT JSON SCHEMA>" in prompt
-        assert '"type": "object"' in prompt
-
-    assert '"extractions"' in batch_prompt
+    assert "<OUTPUT JSON CONTRACT>" in batch_prompt
+    assert "</OUTPUT JSON CONTRACT>" in batch_prompt
+    assert "<OUTPUT JSON SCHEMA>" not in batch_prompt
+    assert "extractions" in batch_prompt
+    assert "section_kind" in batch_prompt
+    assert "<OUTPUT JSON SCHEMA>" in consolidation_prompt
+    assert "</OUTPUT JSON SCHEMA>" in consolidation_prompt
     assert '"days"' in consolidation_prompt
+
+
+def test_dali_report_batches_many_small_sections_into_few_llm_calls() -> None:
+    report_path = next(REPORT_DIR.glob("*大理*.md"))
+    sections = agent._build_llm_extraction_sections(
+        report_path.read_text(encoding="utf-8"),
+        "大理",
+    )
+
+    batches = agent._batch_sections(sections)
+
+    assert len(sections) == 81
+    assert len(batches) <= 5
+    assert all(sum(len(section.markdown) for section in batch) <= 12_000 for batch in batches)
 
 
 def test_chunk_batch_retries_once_then_rejects_missing_chunk() -> None:
@@ -591,6 +606,37 @@ def test_report_itinerary_keeps_original_transport_when_train_query_fails(monkey
     )
 
     assert itinerary.days[0].transport[0].duration == "上午直达"
+
+
+def test_report_itinerary_limits_extracted_tips_to_schema_max(monkeypatch) -> None:
+    extracted = ExtractedReport(
+        overview="完整概览",
+        start_date="2026-06-28",
+        end_date="2026-06-28",
+        total_days=1,
+        tips=[f"提示 {index}" for index in range(105)],
+        days=[
+            ExtractedDay(
+                day_index=1,
+                date="2026-06-28",
+                theme="抵达杭州",
+            )
+        ],
+    )
+    monkeypatch.setattr(agent, "_maybe_enrich_itinerary_with_map_data", lambda itinerary, city: itinerary)
+
+    itinerary = agent._itinerary_from_extracted_report(
+        source_id="report_1",
+        source_sha256="abc",
+        extracted=extracted,
+        destination="杭州",
+        title="杭州攻略",
+        cache_prefix="report_itinerary",
+        chunk_count=1,
+    )
+
+    assert len(itinerary.tips) == 100
+    assert itinerary.tips == [f"提示 {index}" for index in range(100)]
 
 
 def test_display_uses_typed_overview_hides_unknown_costs_and_deduplicates_pois() -> None:

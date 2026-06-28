@@ -68,6 +68,50 @@ def test_default_outline_covers_the_five_guide_workstreams() -> None:
     assert "景点" in titles and "餐饮" in titles
     assert "逐日" in titles
     assert "风险预案" in titles
+    assert [item["requires_12306_mcp"] for item in structure] == [
+        False,
+        True,
+        False,
+        True,
+        False,
+    ]
+
+
+def test_outline_preserves_requires_12306_mcp_flags() -> None:
+    node = ReportStructureNode(FakeLLM(), "大理、丽江、香格里拉 2026年7月旅行")
+
+    structure = node.process_output(
+        """
+        [
+          {"title":"旅行概览","content":"梳理日期和预算","requires_12306_mcp":false},
+          {"title":"跨市交通、市内交通与住宿","content":"核查大理到丽江铁路","requires_12306_mcp":true},
+          {"title":"候选景点","content":"整理景点","requires_12306_mcp":false},
+          {"title":"逐日可执行行程","content":"安排每日转场","requires_12306_mcp":true},
+          {"title":"出发准备","content":"整理清单","requires_12306_mcp":false}
+        ]
+        """
+    )
+
+    assert structure[1]["requires_12306_mcp"] is True
+    assert structure[3]["requires_12306_mcp"] is True
+
+
+def test_outline_defaults_missing_requires_12306_mcp_to_false() -> None:
+    node = ReportStructureNode(FakeLLM(), "厦门单城市旅行")
+
+    structure = node.process_output(
+        """
+        [
+          {"title":"旅行概览","content":"梳理日期和预算"},
+          {"title":"交通住宿","content":"核查市内交通"},
+          {"title":"候选景点","content":"整理景点"},
+          {"title":"逐日可执行行程","content":"安排每日游览"},
+          {"title":"出发准备","content":"整理清单"}
+        ]
+        """
+    )
+
+    assert all(item["requires_12306_mcp"] is False for item in structure)
 
 
 def test_incomplete_llm_outline_falls_back_to_all_five_workstreams() -> None:
@@ -79,6 +123,8 @@ def test_incomplete_llm_outline_falls_back_to_all_five_workstreams() -> None:
 
     assert len(structure) == 5
     assert structure[3]["title"] == "逐日可执行行程"
+    assert structure[1]["requires_12306_mcp"] is True
+    assert structure[3]["requires_12306_mcp"] is True
 
 
 def test_search_results_keep_source_metadata_for_citations() -> None:
@@ -101,6 +147,31 @@ def test_search_results_keep_source_metadata_for_citations() -> None:
         "相关度: 0.98\n"
         "内容: 秋季寺院预约信息"
     ]
+
+
+def test_search_results_prefer_raw_content_and_share_total_prompt_budget() -> None:
+    formatted = format_search_results_for_prompt(
+        [
+            {
+                "title": "12306",
+                "url": "https://www.12306.cn/index/",
+                "content": "只包含车次列表",
+                "raw_content": "车次列表\n来源：中国铁路12306\n最终购票以 12306 官方页面为准。",
+            },
+            {
+                "title": "景区公告",
+                "url": "https://example.com/notice",
+                "content": "B" * 500,
+            },
+        ],
+        max_length=180,
+    )
+
+    joined = "\n".join(formatted)
+    assert "来源：中国铁路12306" in joined
+    assert "最终购票以 12306 官方页面为准" in joined
+    assert "只包含车次列表" not in joined
+    assert len(joined) <= 260
 
 
 def test_search_state_preserves_source_publication_date() -> None:

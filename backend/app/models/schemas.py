@@ -16,6 +16,7 @@ MAX_CHAT_MESSAGE_LENGTH = 4000
 class TripRequest(BaseModel):
     """用于生成新行程的请求体。"""
 
+    origin: str = Field(default="待补充", min_length=1, max_length=100, description="出发地，例如北京")
     destination: str = Field(..., min_length=1, max_length=100, description="目的地，例如大理")
     start_date: DateType = Field(..., description="出行开始日期")
     end_date: DateType = Field(..., description="出行结束日期")
@@ -402,11 +403,32 @@ class DeepPlanSource(BaseModel):
 
     section_title: str = Field(default="", description="来源所属研究章节")
     query: str = Field(default="", description="产生该来源的搜索查询")
+    step_id: str = Field(default="", description="产生该来源的研究步骤 ID")
     title: str = Field(default="", description="来源标题")
     url: str = Field(default="", description="来源链接")
     content: str = Field(default="", description="来源摘要内容")
+    raw_content: str | None = Field(default=None, description="来源原始或更完整内容")
+    used_in_summary: bool = Field(default=False, description="该来源是否进入总结提示词")
     score: float | None = Field(default=None, description="搜索相关度")
     published_date: str | None = Field(default=None, description="来源发布日期")
+
+
+class DeepPlanResearchTraceStep(BaseModel):
+    """深度规划每轮研究的结构化审计记录。"""
+
+    step_id: str = Field(default="", description="研究步骤稳定 ID")
+    phase: str = Field(default="", description="研究阶段 initial/reflection/final")
+    section_title: str = Field(default="", description="所属研究章节")
+    search_query: str = Field(default="", description="本轮搜索查询")
+    search_tool: str = Field(default="", description="本轮搜索工具")
+    reasoning: str = Field(default="", description="搜索计划理由")
+    summary_before: str = Field(default="", description="本轮前摘要")
+    summary_after: str = Field(default="", description="本轮后摘要")
+    evidence_count: int = Field(default=0, ge=0, description="进入提示词的来源数量")
+    prompt_chars: int = Field(default=0, ge=0, description="本轮提示词估算字符数")
+    estimated_prompt_tokens: int = Field(default=0, ge=0, description="本轮提示词估算 token")
+    fallback_reason: str = Field(default="", description="解析失败或兜底原因")
+    timestamp: str = Field(default="", description="记录时间")
 
 
 class DeepPlanDocument(BaseModel):
@@ -414,6 +436,10 @@ class DeepPlanDocument(BaseModel):
 
     markdown: str = Field(..., max_length=500_000, description="完整旅行攻略 Markdown")
     sources: list[DeepPlanSource] = Field(default_factory=list, description="结构化研究来源")
+    research_trace: list[DeepPlanResearchTraceStep] = Field(
+        default_factory=list,
+        description="结构化研究过程轨迹",
+    )
 
 
 class TripDetailResponse(BaseModel):
