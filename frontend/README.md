@@ -17,7 +17,22 @@
 - 地图：接入高德 JavaScript API
 - 天气：展示后端 `/weather/forecast` 返回的天气预报
 
-## 2. 目录结构
+## 2. 项目展示
+
+前端界面展示素材统一放在 [`../assets/showcase/`](../assets/showcase/README.md)，包括规划页、结果页、深度规划页、历史页和浮动聊天助手。
+
+| 规划页 | 行程结果 |
+| :---: | :---: |
+| <img src="../assets/showcase/01规划界面.png" alt="规划界面" width="420"> | <img src="../assets/showcase/02行程生成界面.png" alt="行程生成界面" width="420"> |
+
+| 深度规划 | 历史行程 |
+| :---: | :---: |
+| <img src="../assets/showcase/03%20深度规划研究过程.png" alt="深度规划研究过程" width="420"> | <img src="../assets/showcase/04%20历史行程界面.png" alt="历史行程界面" width="420"> |
+
+- 浮动聊天助手截图：[`聊天机器人界面.png`](../assets/showcase/聊天机器人界面.png)
+- 浮动聊天助手演示：[`聊天机器人运行.mp4`](../assets/showcase/聊天机器人运行.mp4)
+
+## 3. 目录结构
 
 ```text
 frontend/
@@ -43,7 +58,7 @@ frontend/
 └── vite.config.ts
 ```
 
-## 3. 环境变量
+## 4. 环境变量
 
 在服务器的 `frontend/` 目录下创建 `.env`：
 
@@ -58,7 +73,7 @@ VITE_AMAP_JS_KEY=你的高德 JavaScript API key
 - 高德前端地图需要 JavaScript API key，不是后端 Web 服务 key
 - 修改 `.env` 后需要重启 `npm run dev`
 
-## 4. 启动方式
+## 5. 启动方式
 
 ### 安装依赖
 
@@ -89,7 +104,7 @@ server: {
 http://你的服务器地址:5173
 ```
 
-## 5. 后端联调前提
+## 6. 后端联调前提
 
 前端运行前，后端需要先启动：
 
@@ -106,7 +121,7 @@ http://你的服务器地址:8000/
 http://你的服务器地址:8000/docs
 ```
 
-## 6. 常见问题
+## 7. 常见问题
 
 ### 页面能打开，但生成行程失败
 
@@ -146,7 +161,7 @@ cd ~/autodl-tmp/TripPlannerDemo/frontend
 
 不要在 `backend/` 目录运行 `npm run dev`。
 
-## 7. 当前推荐验证顺序
+## 8. 当前推荐验证顺序
 
 1. 启动后端
 2. 启动前端
