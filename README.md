@@ -1,10 +1,29 @@
-# 🗺️ 智旅云图
+# Trip Planner
 
 > 融合大模型、RAG、本地攻略与高德地图能力的智能旅行规划系统
 
-智旅云图是一个面向中文旅行场景的 AI 旅行规划项目。用户输入目的地、日期、预算、人数和偏好后，系统会自动生成结构化旅行方案，并进一步补充地图点位、天气信息、预算拆分、景点图片与可导出的旅行文档。
+Trip Planner 是一个面向中文旅行场景的 AI 旅行规划项目。用户输入目的地、日期、预算、人数和偏好后，系统可以走两条链路：快速生成可编辑的结构化 itinerary，或进入深度规划模式，由 Destination Intelligence Agent 联网检索、反思补查并生成带来源的 Markdown 攻略。
 
-相比只输出一段文本的 LLM Demo，这个项目更强调完整链路落地：从 **行程生成、攻略检索、地图信息补全、天气补充，到历史管理与文档导出**，尽量把 AI 能力组织成一个可交互、可保存、可展示的产品原型。
+相比只输出一段文本的 LLM Demo，这个项目更强调“研究、规划、追问、修改”的完整闭环：深度规划负责把旅行前的信息收集和判断过程沉淀成报告，浮动聊天机器人负责在结果页继续问答、联网检索和自然语言改行程。地图、天气、预算、历史与导出能力围绕这两个核心流程提供支撑。
+
+## 🖼️ 项目展示
+
+展示素材统一维护在 [`assets/showcase/`](./assets/showcase/README.md)，覆盖规划表单、行程结果、深度规划研究过程、历史行程和浮动聊天助手等核心界面。
+
+| 规划页 | 行程生成结果 |
+| :---: | :---: |
+| <img src="./assets/showcase/01规划界面.png" alt="Trip Planner 规划界面" width="420"> | <img src="./assets/showcase/02行程生成界面.png" alt="Trip Planner 行程生成界面" width="420"> |
+
+| 深度规划研究过程 | 历史行程 |
+| :---: | :---: |
+| <img src="./assets/showcase/03%20深度规划研究过程.png" alt="Trip Planner 深度规划研究过程" width="420"> | <img src="./assets/showcase/04%20历史行程界面.png" alt="Trip Planner 历史行程界面" width="420"> |
+
+| 浮动聊天助手 |
+| :---: |
+| <img src="./assets/showcase/聊天机器人界面.png" alt="Trip Planner 浮动聊天助手界面" width="320"> |
+
+- 演示视频：[`聊天机器人运行.mp4`](./assets/showcase/聊天机器人运行.mp4)
+- 深度规划报告样例：[`厦门、汕头 15天14晚旅行攻略`](./assets/showcase/深度规划结果-厦门、汕头%202026-07-01%20至%202026-07-15（15天14晚）旅行攻略.md)
 
 ## 📝 最近更新
 
@@ -20,7 +39,7 @@
   - 工程质量：补充地图服务、行程服务与 RAG 检索测试，前后端类型模型同步扩展地图字段。
 - `2026-04-29`
   - RAG：扩充知识库至 5 个目的地（大理/成都/西安/厦门/三亚），评估样例集扩充至 15 条，完成规则级 Rerank 多层降权与 Query Rewrite 目的地过滤，消除跨目的地污染。
-  - 地图前端：新增地图路线虚线箭头可视化、🚩 旗帜打卡标记与景点图片气泡窗口。
+  - 地图前端：新增地图路线虚线箭头可视化与打卡标记。
 - `2026-04-25`：完成第一轮 RAG 在线阶段优化，已接入轻量化 Query Rewrite、轻量 Rerank 与检索调试脚本。
 - `2026-04-15`：新增 Redis 缓存层，已覆盖天气查询、地图查询与 RAG 检索结果缓存。
 
@@ -28,35 +47,18 @@
 
 ---
 
-## 📸 效果展示
-
-### 规划页
-
-![规划页效果](./assets/showcase/01规划界面.jpeg)
-
-### 行程生成结果页
-
-![行程生成结果页](./assets/showcase/02行程生成界面.jpeg)
-
-### 保存与历史管理
-
-![保存界面](./assets/showcase/03保存界面.jpeg)
-
-### PDF 导出效果
-
-![PDF 导出效果](./assets/showcase/04保存为pdf.png)
-
----
-
 ## ✨ 项目亮点
 
-- 🧠 **LLM 行程生成**：基于 LangChain + DashScope 调用 `qwen-max` 生成结构化旅行计划
-- 🔎 **深度规划模式**：通过 Destination Intelligence Agent 联网检索官方旅行、交通、景点、住宿、餐饮与动态公告，经过多段总结和反思生成带来源的 Markdown 攻略
-- 🧩 **报告转结构化行程**：支持把深度规划报告或历史 Markdown Report 转换为结果页 itinerary，继续使用地图、天气、预算、保存和导出链路
-- 💬 **浮动旅行助手**：结果页内置 ChatUI 对话助手，可识别问答、联网搜索和行程修改意图，并把修改结果回写到当前 itinerary
-- 📚 **RAG 攻略增强**：使用本地 Markdown 攻略 + Chroma 向量检索，为生成结果补充目的地上下文
+- 🔎 **深度规划模式**：通过 Destination Intelligence Agent 联网检索官方旅行、交通、景点、住宿、餐饮与动态公告，经过分章节总结、反思补查和来源整理，生成可追溯的 Markdown 深度攻略
+- 🧭 **研究式规划过程**：深度规划不是单次问答，而是后台任务式工作流；服务层会持久化任务状态、研究 query、最终报告与来源列表，前端可在历史页和深度报告页继续查看
+- 🧩 **报告转结构化行程**：支持把深度规划报告或历史 Markdown Report 转换为结果页 itinerary，继续复用地图、天气、预算、保存、编辑和导出链路
+- 💬 **浮动旅行助手**：结果页内置 ChatUI 对话助手，可识别问答、联网搜索、风险核查、比较建议和行程修改意图，并把修改结果回写到当前 itinerary
+- 🧠 **上下文记忆与偏好合并**：聊天机器人会从用户消息中提取偏好补丁，合并当前 traveler profile，并维护 conversation summary，让后续追问能继承用户约束
+- 🌐 **联网检索型回答**：聊天助手复用 Tavily / SearXNG 搜索能力，适合处理营业时间、交通变化、预约提醒、天气风险等动态旅行问题
+- 🧠 **LLM 结构化行程生成**：基于 LangGraph + LangChain + DashScope 调用 `qwen-max` 生成结构化旅行计划，并支持单日自然语言编辑
+- 📚 **RAG 攻略增强**：使用本地 Markdown 攻略 + Chroma 向量检索，为快速规划和编辑补充目的地上下文
 - 🧭 **RAG 在线优化**：规则级 Query Rewrite（含目的地过滤）+ 多层 Rerank 降权（行程/简介/目的地不匹配），消除跨目的地污染
-- 🗺️ **高德地图接入**：补充景点、餐饮、住宿的地址、经纬度、POI ID、评分、参考消费、标签、电话、距离和图片，并支持附近餐饮住宿推荐、路线估算、虚线箭头路线可视化与 🚩 打卡标记
+- 🗺️ **高德地图接入**：补充景点、餐饮、住宿的地址、经纬度、POI ID、评分、参考消费、标签、电话和距离，并支持附近餐饮住宿推荐、路线估算、虚线箭头路线可视化与打卡标记
 - 🍽️ **本地生活推荐扩展**：餐饮与住宿推荐模型预留美团/大众点评等第三方来源字段，可在高德推荐基础上叠加榜单、评价数、来源链接与推荐理由
 - 🌦️ **天气感知提示**：前端展示天气预报，并根据雨天/阴天自动修正旅行提示
 - ⚡ **Redis 缓存层**：覆盖天气、地图与 RAG 检索缓存，减少重复外部调用开销
@@ -185,9 +187,11 @@ flowchart TD
     ExportRoute --> FrontApi
 ```
 
-快速规划数据流：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图服务补充地址、坐标、路线和图片 → 前端展示地图、天气、预算和每日行程 → 用户可保存、编辑、查看历史并导出文档。
+快速规划数据流：前端收集用户输入 → 后端调用 LLM + RAG 生成结构化行程 → 地图服务补充地址、坐标和路线 → 前端展示地图、天气、预算和每日行程 → 用户可保存、编辑、查看历史并导出文档。
 
-深度规划数据流：前端提交深度规划任务 → 后台 Destination Intelligence Agent 联网检索并生成 Markdown 攻略 → 历史页展示任务状态与研究来源 → 用户可查看深度报告，也可把报告转换为结构化 itinerary 并进入结果页继续编辑和导出。
+深度规划数据流：前端提交深度规划任务 → 后台 Destination Intelligence Agent 制定搜索计划、联网检索、分章节总结和反思补查 → 生成带来源的 Markdown 深度攻略 → 历史页展示任务状态与研究来源 → 用户可查看深度报告，也可把报告转换为结构化 itinerary 并进入结果页继续追问、编辑和导出。
+
+聊天助手数据流：结果页把当前 itinerary、聊天历史和 traveler profile 发送到 `/chatbot/message` → Chatbot Agent 分类用户意图 → 进入 Ask、Search、Research 或 Update 分支 → 返回回答、来源、调研步骤或更新后的 itinerary → 前端同步刷新当前行程。
 
 ---
 
@@ -224,7 +228,7 @@ TripPlannerDemo/
 │   │       ├── report_itinerary_service.py # Report 转 itinerary 缓存与复用
 │   │       ├── cache_service.py         # Redis 缓存封装与降级逻辑
 │   │       ├── local_life_service.py    # 可选餐饮/住宿本地生活数据源
-│   │       ├── map_service.py           # 高德地图 POI、地理编码、路线、图片补充
+│   │       ├── map_service.py           # 高德地图 POI、地理编码、路线补充
 │   │       ├── weather_service.py       # 高德天气服务封装
 │   │       ├── storage_service.py       # SQLite 保存、查询、列表、删除
 │   │       └── export_service.py        # Markdown / PDF 渲染与导出
@@ -253,8 +257,6 @@ TripPlannerDemo/
 │   │   └── main.ts                      # 前端入口
 │   ├── .env.example           # 前端环境变量模板
 │   └── package.json
-├── assets/
-│   └── showcase/              # README 展示截图
 ├── CHANGELOG.md               # 项目功能与架构更新日志
 ├── .gitignore
 └── README.md
@@ -285,7 +287,7 @@ TripPlannerDemo/
 - `backend/app/rag/retriever.py`
   负责基础向量召回后的结果封装、Redis 缓存以及轻量 Rerank，把更贴近旅行规划目标的片段排到前面。
 - `backend/app/services/map_service.py`
-  负责对接高德地图 Web 服务，并结合 Redis 缓存补充地址、经纬度、评分、参考消费、标签、电话、路线估算、图片和附近餐饮住宿推荐。
+  负责对接高德地图 Web 服务，并结合 Redis 缓存补充地址、经纬度、评分、参考消费、标签、电话、路线估算和附近餐饮住宿推荐。
 - `backend/app/services/export_service.py`
   负责把 itinerary 渲染成 Markdown 与中文 PDF。
 - `backend/app/services/storage_service.py`
@@ -491,6 +493,31 @@ uv run python scripts/test_trip_service_real.py
 
 ## 🔄 关键业务链路
 
+### 深度规划
+
+```text
+Home.vue
+  -> POST /trip/deep-generate
+  -> deep_planning_service.py 后台任务
+  -> destination_intelligence_agent
+  -> 搜索计划 / 联网检索 / 分章节总结 / 反思补查
+  -> Markdown Report + Sources
+  -> History.vue / DeepPlanResult.vue
+  -> GET /trip/{trip_id}/deep-itinerary
+  -> report_itinerary_agent
+  -> Result.vue
+```
+
+### 浮动旅行助手
+
+```text
+FloatingChatbot.vue
+  -> POST /chatbot/message
+  -> chatbot_agent 意图识别
+  -> Ask / Search / Research / Update
+  -> 当前 itinerary 问答、联网搜索、调研步骤或行程回写
+```
+
 ### 行程生成
 
 ```text
@@ -511,30 +538,6 @@ Result.vue
   -> trip_service.py
   -> generate_day_edit_draft()
   -> 更新目标 DayPlan
-```
-
-### 深度规划
-
-```text
-Home.vue
-  -> POST /trip/deep-generate
-  -> deep_planning_service.py 后台任务
-  -> destination_intelligence_agent
-  -> Markdown Report + Sources
-  -> History.vue / DeepPlanResult.vue
-  -> GET /trip/{trip_id}/deep-itinerary
-  -> report_itinerary_agent
-  -> Result.vue
-```
-
-### 浮动旅行助手
-
-```text
-FloatingChatbot.vue
-  -> POST /chatbot/message
-  -> chatbot_agent 意图识别
-  -> Ask / Search / Update
-  -> 当前 itinerary 问答、联网搜索或行程回写
 ```
 
 ### PDF 导出
@@ -609,7 +612,7 @@ cd frontend
 ## ✅ 当前完成度
 
 - ✅ **后端能力**：快速行程生成、深度规划任务、Report 转 itinerary、浮动聊天助手、智能编辑、保存查询、历史列表、删除、天气查询、Markdown 导出与 PDF 导出接口
-- ✅ **AI 与数据能力**：LangChain 行程生成链路、Destination Intelligence 深度攻略、Report 结构化抽取、5 个目的地攻略 RAG 检索、Chroma 入库检索、高德地图地址/坐标/路线/图片补充
+- ✅ **AI 与数据能力**：LangGraph/LangChain 行程生成链路、Destination Intelligence 深度攻略、聊天助手意图路由与联网检索、Report 结构化抽取、5 个目的地攻略 RAG 检索、Chroma 入库检索、高德地图地址/坐标/路线补充
 - ✅ **RAG 在线优化**：规则级 Query Rewrite（含目的地过滤）、多层 Rerank 降权、检索调试脚本与 15 条评估样例集
 - ✅ **前端能力**：规划页、结果页、深度规划报告页、历史列表页、浮动聊天助手，以及地图/天气/预算展示、导出与历史管理主流程
 - ✅ **缓存与持久化**：SQLite 持久化存储 + Redis 缓存层（覆盖天气、地图与 RAG 检索）

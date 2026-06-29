@@ -627,9 +627,12 @@ body {
   width: 56px;
   height: 56px;
   place-items: center;
-  border: 1px solid rgba(215, 173, 88, 0.48);
+  overflow: hidden;
+  border: 1px solid rgba(215, 173, 88, 0.54);
   border-radius: 50%;
-  background: linear-gradient(135deg, #143c38, #1f574f);
+  background:
+    radial-gradient(circle at 36% 30%, rgba(255, 255, 255, 0.22), transparent 28%),
+    linear-gradient(135deg, #102f2c, #1f574f);
   color: #ffffff;
   box-shadow:
     0 16px 36px rgba(20, 60, 56, 0.28),
@@ -648,7 +651,6 @@ body {
 }
 
 .floating-chatbot__toggle:hover {
-  background: linear-gradient(135deg, #1f574f, #143c38);
   box-shadow:
     0 18px 42px rgba(20, 60, 56, 0.34),
     0 0 0 8px rgba(215, 173, 88, 0.12);
@@ -656,33 +658,60 @@ body {
 }
 
 .floating-chatbot--responding .floating-chatbot__toggle {
-  background: linear-gradient(135deg, #143c38, #d7ad58);
   box-shadow:
     0 18px 42px rgba(20, 60, 56, 0.34),
-    0 0 0 0 rgba(215, 173, 88, 0.28);
+    0 0 0 8px rgba(215, 173, 88, 0.16);
 }
 
-.floating-chatbot__thinking-ring {
+.floating-chatbot__orb {
   position: absolute;
-  inset: 5px;
-  border: 2px solid rgba(255, 255, 255, 0.28);
-  border-top-color: #ffffff;
+  inset: -8px;
+  display: block;
   border-radius: 50%;
-  opacity: 0;
+  overflow: hidden;
   pointer-events: none;
-  transform: scale(0.92);
+}
+
+.floating-chatbot__orb canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.floating-chatbot__orb::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.28), transparent 22%),
+    radial-gradient(circle at 72% 78%, rgba(215, 173, 88, 0.2), transparent 32%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+.floating-chatbot__orb-fallback {
+  position: absolute;
+  inset: 13px;
+  z-index: -1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, #ffffff, transparent 22%),
+    linear-gradient(135deg, #1f574f, #d7ad58);
+}
+
+.floating-chatbot__orb--listening {
+  filter: saturate(1.08);
+}
+
+.floating-chatbot__orb--thinking,
+.floating-chatbot__orb--talking {
+  filter: saturate(1.18) brightness(1.04);
 }
 
 .floating-chatbot__toggle:focus-visible {
   outline: 3px solid rgba(215, 173, 88, 0.32);
   outline-offset: 4px;
-}
-
-.floating-chatbot__toggle-mark {
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0;
-  transition: transform 0.18s ease;
 }
 
 @media (max-width: 640px) {

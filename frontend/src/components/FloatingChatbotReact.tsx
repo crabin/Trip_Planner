@@ -16,6 +16,7 @@ import type {
   Itinerary,
   TravelerProfile,
 } from "../types";
+import { ChatbotOrb, type ChatbotOrbState } from "./ChatbotOrb";
 
 export interface FloatingChatbotProps {
   currentItinerary: Itinerary | null;
@@ -122,18 +123,18 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
   const text = CHATBOT_TEXT[props.locale];
   const rootRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
-  const thinkingRingRef = useRef<HTMLSpanElement | null>(null);
-  const toggleMarkRef = useRef<HTMLSpanElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [customSize, setCustomSize] = useState(DEFAULT_CHATBOT_SIZE);
   const [customOffset, setCustomOffset] = useState(DEFAULT_CHATBOT_OFFSET);
   const [isDraggingToggle, setIsDraggingToggle] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => getViewportSize());
+  const isOpenRef = useRef(isOpen);
   const [history, setHistory] = useState<ChatbotConversationMessage[]>([]);
   const [travelerProfile, setTravelerProfile] = useState<TravelerProfile>(() => loadTravelerProfile());
   const [conversationSummary, setConversationSummary] = useState(() => loadConversationSummary());
   const [isResponding, setIsResponding] = useState(false);
+  const [orbOverrideState, setOrbOverrideState] = useState<ChatbotOrbState>(null);
   const { messages, appendMsg, updateMsg } = useMessages([
     {
       type: "text",
@@ -150,27 +151,12 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
 
   useGSAP(() => {
     const toggle = toggleRef.current;
-    const ring = thinkingRingRef.current;
-    const mark = toggleMarkRef.current;
-    if (!toggle || !ring || !mark) {
+    if (!toggle) {
       return undefined;
     }
 
     if (!isResponding) {
       gsap.set(toggle, {
-        backgroundColor: "",
-        boxShadow: "",
-        scale: 1,
-        y: 0,
-      });
-      gsap.set(ring, {
-        autoAlpha: 0,
-        rotation: 0,
-        scale: 0.92,
-      });
-      gsap.set(mark, {
-        autoAlpha: 1,
-        rotation: 0,
         scale: 1,
         y: 0,
       });
@@ -180,26 +166,10 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     const mm = gsap.matchMedia();
     mm.add("(prefers-reduced-motion: no-preference)", () => {
       const timeline = gsap.timeline();
-      timeline.set(ring, { autoAlpha: 1, scale: 1 });
-      timeline.to(ring, {
-        rotation: 360,
-        duration: 1.05,
-        ease: "none",
-        repeat: -1,
-      }, 0);
       timeline.to(toggle, {
-        backgroundColor: "#4f5fd0",
-        boxShadow: "0 18px 42px rgba(62, 78, 160, 0.42), 0 0 0 12px rgba(88, 103, 216, 0)",
         scale: 1.035,
         y: -1.5,
         duration: 0.9,
-        ease: "sine.inOut",
-        repeat: -1,
-        yoyo: true,
-      }, 0);
-      timeline.to(mark, {
-        scale: 0.86,
-        duration: 0.78,
         ease: "sine.inOut",
         repeat: -1,
         yoyo: true,
@@ -209,18 +179,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     });
     mm.add("(prefers-reduced-motion: reduce)", () => {
       gsap.set(toggle, {
-        backgroundColor: "#4f5fd0",
-        boxShadow: "0 18px 42px rgba(62, 78, 160, 0.42), 0 0 0 4px rgba(88, 103, 216, 0.18)",
         scale: 1,
-        y: 0,
-      });
-      gsap.set(ring, {
-        autoAlpha: 1,
-        rotation: 0,
-        scale: 1,
-      });
-      gsap.set(mark, {
-        scale: 0.88,
         y: 0,
       });
       return undefined;
@@ -234,6 +193,10 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
   const toggleMaximized = useCallback(() => {
     setIsMaximized((value) => {
@@ -268,6 +231,12 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
     }),
     [isMaximized, text, toggleMaximized],
   );
+
+  const orbState: ChatbotOrbState = orbOverrideState ?? (isResponding ? "thinking" : isOpen ? "listening" : null);
+
+  const setTypingOrbState = useCallback((state: ChatbotOrbState) => {
+    setOrbOverrideState(state ?? (isOpenRef.current ? "listening" : null));
+  }, []);
 
   const handleResizeStart = useCallback((event: React.MouseEvent<HTMLElement>, direction: ResizeDirection) => {
     event.preventDefault();
@@ -449,6 +418,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
       }
 
       setIsResponding(true);
+      setOrbOverrideState("thinking");
       appendMsg({
         type: "text",
         content: { text: userText },
@@ -601,6 +571,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
             finalTyping = typeAssistantMessage(event.data.reply, {
               appendMsg,
               updateMsg,
+              onTypingStateChange: setTypingOrbState,
               researchSteps: queryCardMessageId || researchCardMessageId ? [] : visibleSteps,
               markdown: true,
               report: true,
@@ -626,6 +597,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
           await typeAssistantMessage(response.reply, {
             appendMsg,
             updateMsg,
+            onTypingStateChange: setTypingOrbState,
             researchSteps: response.research_steps,
             markdown: true,
             report: true,
@@ -644,10 +616,11 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         console.error(error);
         appendAssistantMessage(text.noResponse);
       } finally {
+        setOrbOverrideState(null);
         setIsResponding(false);
       }
     },
-    [appendMsg, conversationSummary, history, isResponding, props, text, travelerProfile, updateMsg],
+    [appendMsg, conversationSummary, history, isResponding, props, setTypingOrbState, text, travelerProfile, updateMsg],
   );
 
   return React.createElement(
@@ -720,23 +693,7 @@ function FloatingChatbotReact(props: FloatingChatbotProps) {
         },
         onPointerDown: handleTogglePointerDown,
       },
-      React.createElement(
-        "span",
-        {
-          ref: thinkingRingRef,
-          className: "floating-chatbot__thinking-ring",
-          "aria-hidden": true,
-        },
-      ),
-      React.createElement(
-        "span",
-        {
-          ref: toggleMarkRef,
-          className: "floating-chatbot__toggle-mark",
-          "aria-hidden": true,
-        },
-        isOpen ? "X" : "AI",
-      ),
+      React.createElement(ChatbotOrb, { state: orbState }),
     ),
   );
 }
@@ -813,11 +770,13 @@ async function typeAssistantMessage(
   options: {
     appendMsg: ReturnType<typeof useMessages>["appendMsg"];
     updateMsg: ReturnType<typeof useMessages>["updateMsg"];
+    onTypingStateChange?: (state: ChatbotOrbState) => void;
     researchSteps?: ChatbotResearchStep[];
     markdown?: boolean;
     report?: boolean;
   },
 ): Promise<void> {
+  options.onTypingStateChange?.("talking");
   const characters = Array.from(text);
   const messageId = options.appendMsg({
     type: "text",
@@ -854,6 +813,7 @@ async function typeAssistantMessage(
     },
     position: "left",
   });
+  options.onTypingStateChange?.(null);
 }
 
 function sleep(ms: number): Promise<void> {
